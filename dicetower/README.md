@@ -1,6 +1,6 @@
 # Dungeon Master Dice Tower Firmware (PlatformIO)
 
-This firmware targets a NodeMCU V3 (ESP8266, CH340) and blinks the onboard LED (no LED strip required).
+This firmware targets a NodeMCU V3 (ESP8266, CH340) and blinks the onboard LED (no LED strip required). It starts a Wi‑Fi Access Point and exposes an HTTP API to control blinking.
 
 ## Hardware
 
@@ -17,7 +17,21 @@ Requirements: VS Code with PlatformIO extension installed.
 4. Build and upload:
    - In PlatformIO, select the `nodemcuv2` environment.
    - Click “Upload”. If upload fails, try a lower `upload_speed` in `platformio.ini`.
-5. Open the Serial Monitor at 115200 baud. You should see `Starting onboard LED blink...` and the onboard LED should blink at 1 Hz.
+5. Open the Serial Monitor at 115200 baud. You should see AP credentials and IP printed. Connect your phone/PC to the AP.
+
+## Wi‑Fi AP + HTTP API
+
+- AP SSID: `DiceTower-XXYY` (last bytes from MAC)
+- AP password: `dungeon123`
+- Default IP: typically `192.168.4.1`
+
+Endpoints (GET):
+
+- `/` → text status
+- `/status` → `{ blinking: boolean, ledOn: boolean }`
+- `/blink/on` → enable blinking
+- `/blink/off` → disable blinking (LED off)
+- `/blink/toggle` → toggle blinking
 
 ## Notes
 
