@@ -2,7 +2,7 @@ import { defineStore } from 'pinia';
 import { ref, computed, watch } from 'vue';
 
 export const useTowerStore = defineStore('towers', () => {
-  const towers = ref([]); // [{ id, name, url, lastSeenAt }]
+  const towers = ref([]); // [{ id, name, url, lastSeenAt, online }]
 
   const count = computed(() => towers.value.length);
 
@@ -25,6 +25,7 @@ export const useTowerStore = defineStore('towers', () => {
       name: partial.name || `Tower ${count.value + 1}`,
       url: partial.url || '',
       lastSeenAt: nowIso,
+      online: partial.online || false,
     };
     towers.value.push(item);
     return item;
@@ -35,12 +36,36 @@ export const useTowerStore = defineStore('towers', () => {
     if (i > -1) towers.value.splice(i, 1);
   }
 
+  function cleanInvalidTowers() {
+    const validTowers = towers.value.filter(
+      tower =>
+        tower.url &&
+        tower.url.trim() !== '' &&
+        (tower.url.startsWith('http://') || tower.url.startsWith('https://'))
+    );
+    towers.value = validTowers;
+  }
+
   function load() {
     try {
       const raw = localStorage.getItem('dice-tower-list');
-      if (raw) towers.value = JSON.parse(raw);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        // Filter out towers with empty or invalid URLs
+        const validTowers = parsed.filter(
+          tower =>
+            tower.url &&
+            tower.url.trim() !== '' &&
+            (tower.url.startsWith('http://') ||
+              tower.url.startsWith('https://'))
+        );
+        towers.value = validTowers;
+      } else {
+        towers.value = [];
+      }
     } catch (e) {
       console.error('towerStore load error', e);
+      towers.value = [];
     }
   }
 
@@ -54,5 +79,13 @@ export const useTowerStore = defineStore('towers', () => {
 
   watch(towers, save, { deep: true });
 
-  return { towers, count, addOrUpdateTower, removeTower, load, save };
+  return {
+    towers,
+    count,
+    addOrUpdateTower,
+    removeTower,
+    load,
+    save,
+    cleanInvalidTowers,
+  };
 });
