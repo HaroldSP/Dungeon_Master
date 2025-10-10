@@ -32,29 +32,29 @@
                       <v-btn
                         class="mr-2"
                         size="small"
+                        text="Status"
                         @click="testTower(t)"
-                        >Status</v-btn
-                      >
+                      />
                       <v-btn
                         class="mr-2"
                         color="primary"
                         size="small"
+                        text="On"
                         @click="callOn(t, '/blink/on')"
-                        >On</v-btn
-                      >
+                      />
                       <v-btn
                         class="mr-2"
                         color="secondary"
                         size="small"
+                        text="Off"
                         @click="callOn(t, '/blink/off')"
-                        >Off</v-btn
-                      >
+                      />
                       <v-btn
                         variant="tonal"
                         size="small"
+                        text="Toggle"
                         @click="callOn(t, '/blink/toggle')"
-                        >Toggle</v-btn
-                      >
+                      />
                     </template>
                   </v-list-item>
                 </v-list>
@@ -112,27 +112,27 @@
                   <v-btn
                     color="primary"
                     :loading="loading.apOn"
+                    text="Blink ON"
                     @click="callAp('/blink/on', 'apOn')"
-                    >Blink ON</v-btn
-                  >
+                  />
                   <v-btn
                     color="secondary"
                     :loading="loading.apOff"
+                    text="Blink OFF"
                     @click="callAp('/blink/off', 'apOff')"
-                    >Blink OFF</v-btn
-                  >
+                  />
                   <v-btn
                     variant="tonal"
                     :loading="loading.apToggle"
+                    text="Toggle"
                     @click="callAp('/blink/toggle', 'apToggle')"
-                    >Toggle</v-btn
-                  >
+                  />
                   <v-btn
                     variant="text"
                     :loading="loading.apStatus"
+                    text="Status"
                     @click="callAp('/status', 'apStatus')"
-                    >Status</v-btn
-                  >
+                  />
                 </div>
                 <v-alert
                   v-if="apStatusText"
@@ -165,9 +165,9 @@
                 <v-btn
                   color="primary"
                   :loading="loading.provision"
+                  text="Send Credentials"
                   @click="provision"
-                  >Send Credentials</v-btn
-                >
+                />
                 <v-alert
                   v-if="provisionResult"
                   type="info"
@@ -205,21 +205,21 @@
                   <v-btn
                     color="primary"
                     :loading="loading.on"
+                    text="Blink ON"
                     @click="call('/blink/on', 'on')"
-                    >Blink ON</v-btn
-                  >
+                  />
                   <v-btn
                     color="secondary"
                     :loading="loading.off"
+                    text="Blink OFF"
                     @click="call('/blink/off', 'off')"
-                    >Blink OFF</v-btn
-                  >
+                  />
                   <v-btn
                     variant="tonal"
                     :loading="loading.toggle"
+                    text="Toggle"
                     @click="call('/blink/toggle', 'toggle')"
-                    >Toggle</v-btn
-                  >
+                  />
                 </div>
                 <v-alert
                   v-if="statusText"
