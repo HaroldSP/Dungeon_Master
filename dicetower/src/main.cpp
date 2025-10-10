@@ -30,6 +30,7 @@ static void handleOptions() {
 struct WifiCredentials {
   String ssid;
   String pass;
+  String name;
 };
 
 static const char* kCredsPath = "/creds.json";
@@ -38,6 +39,7 @@ static bool saveCredentials(const WifiCredentials& creds) {
   JsonDocument doc;
   doc["ssid"] = creds.ssid;
   doc["pass"] = creds.pass;
+  doc["name"] = creds.name;
   File f = LittleFS.open(kCredsPath, "w");
   if (!f) return false;
   bool ok = (serializeJson(doc, f) > 0);
@@ -55,6 +57,7 @@ static bool loadCredentials(WifiCredentials& out) {
   if (err) return false;
   out.ssid = String((const char*)doc["ssid"]);
   out.pass = String((const char*)doc["pass"]);
+  out.name = String((const char*)doc["name"]);
   return out.ssid.length() > 0;
 }
 
@@ -151,20 +154,27 @@ static void handleStatus() {
 static void handleProvision() {
   String ssid = httpServer.hasArg("ssid") ? httpServer.arg("ssid") : "";
   String pass = httpServer.hasArg("pass") ? httpServer.arg("pass") : "";
+  String name = httpServer.hasArg("name") ? httpServer.arg("name") : "";
   if (ssid.length() == 0) {
     addNoCacheAndCors();
     httpServer.send(400, "application/json", "{\"ok\":false,\"error\":\"missing ssid\"}");
     return;
   }
-  WifiCredentials creds{ssid, pass};
+  WifiCredentials creds{ssid, pass, name};
   bool saved = saveCredentials(creds);
   bool connected = false;
   if (saved) {
     connected = tryConnectSta(creds);
+    // Auto-disable AP after successful STA connection to reduce interference
+    if (connected) {
+      WiFi.mode(WIFI_STA);
+      Serial.println("AP disabled after successful STA connection");
+    }
   }
   String json = String("{\"ok\":") + (saved?"true":"false") + 
                 ",\"connected\":" + (connected?"true":"false") + 
-                ",\"ip\":\"" + (connected ? WiFi.localIP().toString() : "") + "\"}";
+                ",\"ip\":\"" + (connected ? WiFi.localIP().toString() : "") + 
+                "\",\"name\":\"" + creds.name + "\"}";
   addNoCacheAndCors();
   httpServer.send(saved ? 200 : 500, "application/json", json);
 }
@@ -178,6 +188,56 @@ static void handleWipe() {
   httpServer.send(200, "application/json", String("{\"ok\":" ) + (removed?"true":"false") + "}\nRebooting...");
   delay(200);
   ESP.restart();
+}
+
+static void handleApToggle() {
+  String action = httpServer.hasArg("action") ? httpServer.arg("action") : "";
+  bool apEnabled = WiFi.getMode() & WIFI_AP;
+  
+  if (action == "off" && apEnabled) {
+    WiFi.mode(WIFI_STA);
+    addNoCacheAndCors();
+    httpServer.send(200, "application/json", "{\"ok\":true,\"ap\":false}");
+  } else if (action == "on" && !apEnabled) {
+    WiFi.mode(WIFI_AP_STA);
+    const String apSsid = makeApSsid();
+    WiFi.softAP(apSsid.c_str(), "dungeon123");
+    addNoCacheAndCors();
+    httpServer.send(200, "application/json", "{\"ok\":true,\"ap\":true}");
+  } else {
+    addNoCacheAndCors();
+    httpServer.send(200, "application/json", String("{\"ok\":true,\"ap\":") + (apEnabled?"true":"false") + "}");
+  }
+}
+
+static void handleName() {
+  String action = httpServer.hasArg("action") ? httpServer.arg("action") : "";
+  
+  if (action == "get") {
+    WifiCredentials creds;
+    if (loadCredentials(creds)) {
+      addNoCacheAndCors();
+      httpServer.send(200, "application/json", String("{\"ok\":true,\"name\":\"") + creds.name + "\"}");
+    } else {
+      addNoCacheAndCors();
+      httpServer.send(200, "application/json", "{\"ok\":true,\"name\":\"\"}");
+    }
+  } else if (action == "set") {
+    String newName = httpServer.hasArg("name") ? httpServer.arg("name") : "";
+    WifiCredentials creds;
+    if (loadCredentials(creds)) {
+      creds.name = newName;
+      bool saved = saveCredentials(creds);
+      addNoCacheAndCors();
+      httpServer.send(saved ? 200 : 500, "application/json", String("{\"ok\":") + (saved?"true":"false") + ",\"name\":\"" + newName + "\"}");
+    } else {
+      addNoCacheAndCors();
+      httpServer.send(404, "application/json", "{\"ok\":false,\"error\":\"no credentials found\"}");
+    }
+  } else {
+    addNoCacheAndCors();
+    httpServer.send(400, "application/json", "{\"ok\":false,\"error\":\"missing action parameter\"}");
+  }
 }
 
 void setup() {
@@ -239,6 +299,10 @@ void setup() {
   httpServer.on("/provision", HTTP_OPTIONS, handleOptions);
   httpServer.on("/wipe", handleWipe);
   httpServer.on("/wipe", HTTP_OPTIONS, handleOptions);
+  httpServer.on("/ap/toggle", handleApToggle);
+  httpServer.on("/ap/toggle", HTTP_OPTIONS, handleOptions);
+  httpServer.on("/name", handleName);
+  httpServer.on("/name", HTTP_OPTIONS, handleOptions);
   httpServer.onNotFound([](){
     addNoCacheAndCors();
     httpServer.send(404, "text/plain", "Not Found");

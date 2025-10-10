@@ -1,4 +1,15 @@
 <template>
+  <v-app-bar
+    app
+    color="surface"
+    elevation="1"
+    class="map-toolbar"
+  >
+    <v-app-bar-title>
+      <span class="text-h6">Карта</span>
+    </v-app-bar-title>
+  </v-app-bar>
+
   <v-container
     fluid
     class="map-view pa-0"

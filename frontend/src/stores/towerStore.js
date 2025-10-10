@@ -6,6 +6,9 @@ export const useTowerStore = defineStore('towers', () => {
 
   const count = computed(() => towers.value.length);
 
+  // Auto-load from localStorage on store creation
+  load();
+
   function addOrUpdateTower(partial) {
     const id = partial.id || partial.url || Date.now().toString();
     const existing = towers.value.find(

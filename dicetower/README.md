@@ -34,6 +34,9 @@ Endpoints (GET):
 - `/blink/toggle` → toggle blinking
 - `/provision?ssid=YOUR_SSID&pass=YOUR_PASSWORD` → saves Wi‑Fi creds to flash and attempts to connect as STA. If successful, response includes `ip`.
 - `/wipe` → deletes saved Wi‑Fi credentials and restarts. After reboot, the device should return to AP mode.
+- `/ap/toggle?action=on|off` → toggle AP broadcasting (on/off). Without action, returns current AP status.
+- `/name?action=get` → get stored tower name
+- `/name?action=set&name=NAME` → set tower name
 
 ### Multi‑device workflow (5+ towers)
 

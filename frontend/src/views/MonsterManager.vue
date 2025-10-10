@@ -1,117 +1,133 @@
 <template>
+  <v-app-bar
+    app
+    color="surface"
+    elevation="1"
+    class="monster-toolbar"
+  >
+    <v-app-bar-title>
+      <span class="text-h6">Управление монстрами</span>
+    </v-app-bar-title>
+
+    <div class="d-flex align-center ga-2">
+      <v-chip
+        color="primary"
+        variant="elevated"
+        size="small"
+      >
+        👹 {{ monsterCount }} монстров
+      </v-chip>
+      <v-chip
+        color="secondary"
+        variant="elevated"
+        size="small"
+      >
+        🎯 {{ selectedCount }} выбрано
+      </v-chip>
+    </div>
+
+    <v-spacer></v-spacer>
+    <v-tabs
+      v-model="activeTab"
+      class="d-flex"
+    >
+      <v-tab value="list">Список монстров</v-tab>
+      <v-tab value="actions">Действия</v-tab>
+    </v-tabs>
+  </v-app-bar>
+
   <v-container
     fluid
-    class="monster-manager"
+    class="monster-manager-view pa-4"
   >
-    <v-row>
-      <v-col cols="12">
-        <div class="d-flex justify-space-between align-center mb-4">
-          <h1 class="text-h4">Управление монстрами</h1>
-          <div class="d-flex gap-2 flex-wrap">
-            <v-btn
-              color="success"
-              @click="showAddForm"
-              prepend-icon="mdi-plus"
+    <v-window v-model="activeTab">
+      <v-window-item value="list">
+        <v-row>
+          <v-col cols="12">
+            <div
+              v-if="monsters.length === 0"
+              class="text-center py-8"
             >
-              Добавить монстра
-            </v-btn>
-            <v-btn
-              color="primary"
-              @click="showImportDialog"
-              prepend-icon="mdi-import"
-            >
-              Импорт JSON
-            </v-btn>
-            <v-btn
-              color="secondary"
-              @click="exportMonsters"
-              prepend-icon="mdi-export"
-            >
-              Экспорт JSON
-            </v-btn>
-            <v-btn
-              color="warning"
-              @click="loadSampleMonsters"
-              prepend-icon="mdi-book"
-            >
-              Загрузить примеры
-            </v-btn>
-            <v-btn
-              v-if="selectedCount > 0"
-              color="error"
-              @click="clearSelected"
-              prepend-icon="mdi-close"
-            >
-              Очистить выбор ({{ selectedCount }})
-            </v-btn>
-          </div>
-        </div>
-      </v-col>
-    </v-row>
-
-    <v-row>
-      <v-col cols="12">
-        <v-card class="mb-4">
-          <v-card-text>
-            <v-row>
-              <v-col
-                cols="6"
-                md="3"
+              <v-icon
+                size="64"
+                color="grey"
+                >mdi-skull</v-icon
               >
-                <div class="text-center">
-                  <div class="text-h6 text-primary">{{ monsterCount }}</div>
-                  <div class="text-caption">Всего монстров</div>
-                </div>
-              </v-col>
+              <p class="text-h6 mt-4">Нет монстров</p>
+              <p class="text-body-1">
+                Добавьте первого монстра или импортируйте из JSON
+              </p>
+            </div>
+            <v-row v-else>
               <v-col
-                cols="6"
-                md="3"
+                v-for="monster in monsters"
+                :key="monster.id"
+                cols="12"
+                sm="6"
+                md="4"
+                lg="3"
               >
-                <div class="text-center">
-                  <div class="text-h6 text-secondary">{{ selectedCount }}</div>
-                  <div class="text-caption">Выбрано</div>
-                </div>
+                <MonsterCard
+                  :monster="monster"
+                  @edit="editMonster"
+                  @delete="onMonsterDelete"
+                />
               </v-col>
             </v-row>
-          </v-card-text>
-        </v-card>
-      </v-col>
-    </v-row>
-
-    <v-row>
-      <v-col cols="12">
-        <div
-          v-if="monsters.length === 0"
-          class="text-center py-8"
-        >
-          <v-icon
-            size="64"
-            color="grey"
-            >mdi-skull</v-icon
-          >
-          <p class="text-h6 mt-4">Нет монстров</p>
-          <p class="text-body-1">
-            Добавьте первого монстра или импортируйте из JSON
-          </p>
-        </div>
-        <v-row v-else>
-          <v-col
-            v-for="monster in monsters"
-            :key="monster.id"
-            cols="12"
-            sm="6"
-            md="4"
-            lg="3"
-          >
-            <MonsterCard
-              :monster="monster"
-              @edit="editMonster"
-              @delete="onMonsterDelete"
-            />
           </v-col>
         </v-row>
-      </v-col>
-    </v-row>
+      </v-window-item>
+
+      <v-window-item value="actions">
+        <v-row>
+          <v-col cols="12">
+            <v-card class="mb-4">
+              <v-card-title class="text-h6">Действия с монстрами</v-card-title>
+              <v-card-text>
+                <div class="d-flex flex-column gap-3">
+                  <v-btn
+                    color="success"
+                    @click="showAddForm"
+                    prepend-icon="mdi-plus"
+                    text="Добавить монстра"
+                    size="large"
+                  />
+                  <v-btn
+                    color="primary"
+                    @click="showImportDialog"
+                    prepend-icon="mdi-import"
+                    text="Импорт JSON"
+                    size="large"
+                  />
+                  <v-btn
+                    color="secondary"
+                    @click="exportMonsters"
+                    prepend-icon="mdi-export"
+                    text="Экспорт JSON"
+                    size="large"
+                  />
+                  <v-btn
+                    color="warning"
+                    @click="loadSampleMonsters"
+                    prepend-icon="mdi-book"
+                    text="Загрузить примеры"
+                    size="large"
+                  />
+                  <v-btn
+                    v-if="selectedCount > 0"
+                    color="error"
+                    @click="clearSelected"
+                    prepend-icon="mdi-close"
+                    :text="`Очистить выбор (${selectedCount})`"
+                    size="large"
+                  />
+                </div>
+              </v-card-text>
+            </v-card>
+          </v-col>
+        </v-row>
+      </v-window-item>
+    </v-window>
 
     <!-- Import Dialog -->
     <v-dialog
@@ -178,6 +194,7 @@
     loadFromLocalStorage,
   } = monsterStore;
 
+  const activeTab = ref('list');
   const showForm = ref(false);
   const editingMonster = ref(null);
   const showImport = ref(false);
@@ -263,7 +280,8 @@
 </script>
 
 <style scoped>
-  .monster-manager {
-    min-height: 100vh;
+  .monster-manager-view {
+    height: 100vh;
+    overflow-y: auto;
   }
 </style>
