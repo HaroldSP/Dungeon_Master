@@ -4,6 +4,7 @@
 #include <ESP8266WebServer.h>
 #include <LittleFS.h>
 #include <ArduinoJson.h>
+#include "firmware/setup/led_strip.h"
 
 static ESP8266WebServer httpServer(80);
 static bool blinkEnabled = true;
@@ -309,10 +310,16 @@ void setup() {
   });
   httpServer.begin();
   Serial.println("HTTP server started on port 80");
+
+  // LED strip (WS2812 on D2) — set your actual pixel count here
+  ledStripSetup(144);
 }
 
 void loop() {
   httpServer.handleClient();
+
+  // Run LED strip breathing effect continuously
+  ledStripLoop();
 
   if (!blinkEnabled) {
     return;
