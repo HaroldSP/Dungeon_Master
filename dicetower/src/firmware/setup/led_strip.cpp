@@ -7,6 +7,7 @@ static const uint8_t kLedPin = 4;
 static uint16_t gNumPixels = 8;
 
 static Adafruit_NeoPixel gStrip;
+static LedStripMode gMode = LED_MODE_GLOW;
 
 // Internal state for breathing effect
 static uint16_t gPhase = 0;            // 0..1023
@@ -32,10 +33,10 @@ void ledStripSetup(uint16_t numPixels) {
   gStrip.updateType(NEO_GRB + NEO_KHZ800); // WS2812/WS2813 timing
   gStrip.begin();
   gStrip.show(); // Initialize all pixels to 'off'
-  gStrip.setBrightness(32); // Safer default brightness for single 18650 setups
+  gStrip.setBrightness(48); // Slightly brighter, still conservative for single 18650
 }
 
-void ledStripLoop() {
+static void renderGlow() {
   const unsigned long now = millis();
   if (now - gLastUpdate < kUpdateIntervalMs) return;
   gLastUpdate = now;
@@ -54,6 +55,56 @@ void ledStripLoop() {
     gStrip.setPixelColor(i, gStrip.Color(r, g, bl));
   }
   gStrip.show();
+}
+
+static void renderChase() {
+  const unsigned long now = millis();
+  if (now - gLastUpdate < 30) return; // ~33 FPS for chase
+  gLastUpdate = now;
+
+  static uint16_t head = 0;
+  head = (head + 1) % gNumPixels;
+
+  // Background dim purple
+  const uint8_t bgR = 20, bgG = 0, bgB = 40;
+  for (uint16_t i = 0; i < gNumPixels; ++i) {
+    gStrip.setPixelColor(i, gStrip.Color(bgR, bgG, bgB));
+  }
+
+  // Bright runner with a short tail
+  for (int8_t t = 0; t < 6; ++t) {
+    int32_t idx = (int32_t)head - t;
+    while (idx < 0) idx += gNumPixels;
+    uint8_t scale = (uint8_t)(255 - t * 40); // 255,215,175,135,95,55
+    uint8_t r = (uint16_t)160 * scale / 255;
+    uint8_t g = 0;
+    uint8_t b = (uint16_t)255 * scale / 255;
+    gStrip.setPixelColor((uint16_t)idx, gStrip.Color(r, g, b));
+  }
+  gStrip.show();
+}
+
+void ledStripLoop() {
+  if (gMode == LED_MODE_GLOW) {
+    renderGlow();
+  } else {
+    renderChase();
+  }
+}
+
+void ledStripAllOff() {
+  for (uint16_t i = 0; i < gNumPixels; ++i) {
+    gStrip.setPixelColor(i, 0);
+  }
+  gStrip.show();
+}
+
+void ledStripSetMode(LedStripMode mode) {
+  gMode = mode;
+}
+
+LedStripMode ledStripGetMode() {
+  return gMode;
 }
 
 

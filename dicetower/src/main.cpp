@@ -8,6 +8,7 @@
 
 static ESP8266WebServer httpServer(80);
 static bool blinkEnabled = true;
+static bool stripEnabled = true;
 static unsigned long lastToggleMs = 0;
 static const unsigned long blinkIntervalMs = 500;
 static bool ledOn = false; // logical state
@@ -147,7 +148,8 @@ static void handleBlinkToggle() {
 
 static void handleStatus() {
   String json = String("{\"blinking\":") + (blinkEnabled?"true":"false") + 
-                ",\"ledOn\":" + (ledOn?"true":"false") + "}";
+                ",\"ledOn\":" + (ledOn?"true":"false") +
+                ",\"strip\":" + (stripEnabled?"true":"false") + "}";
   addNoCacheAndCors();
   httpServer.send(200, "application/json", json);
 }
@@ -296,6 +298,35 @@ void setup() {
   httpServer.on("/blink/toggle", HTTP_OPTIONS, handleOptions);
   httpServer.on("/status", handleStatus);
   httpServer.on("/status", HTTP_OPTIONS, handleOptions);
+  // LED strip control endpoints
+  httpServer.on("/strip/on", [](){
+    stripEnabled = true;
+    addNoCacheAndCors();
+    httpServer.send(200, "application/json", "{\"ok\":true,\"strip\":true}");
+  });
+  httpServer.on("/strip/on", HTTP_OPTIONS, handleOptions);
+  httpServer.on("/strip/off", [](){
+    stripEnabled = false;
+    ledStripAllOff();
+    addNoCacheAndCors();
+    httpServer.send(200, "application/json", "{\"ok\":true,\"strip\":false}");
+  });
+  httpServer.on("/strip/off", HTTP_OPTIONS, handleOptions);
+  httpServer.on("/strip/toggle", [](){
+    stripEnabled = !stripEnabled;
+    if (!stripEnabled) { ledStripAllOff(); }
+    addNoCacheAndCors();
+    httpServer.send(200, "application/json", String("{\"ok\":true,\"strip\":" ) + (stripEnabled?"true":"false") + "}");
+  });
+  httpServer.on("/strip/toggle", HTTP_OPTIONS, handleOptions);
+  httpServer.on("/strip/mode/toggle", [](){
+    LedStripMode cur = ledStripGetMode();
+    LedStripMode next = (cur == LED_MODE_GLOW) ? LED_MODE_CHASE : LED_MODE_GLOW;
+    ledStripSetMode(next);
+    addNoCacheAndCors();
+    httpServer.send(200, "application/json", String("{\"ok\":true,\"mode\":\"") + (next==LED_MODE_GLOW?"glow":"chase") + "\"}");
+  });
+  httpServer.on("/strip/mode/toggle", HTTP_OPTIONS, handleOptions);
   httpServer.on("/provision", handleProvision);
   httpServer.on("/provision", HTTP_OPTIONS, handleOptions);
   httpServer.on("/wipe", handleWipe);
@@ -318,8 +349,10 @@ void setup() {
 void loop() {
   httpServer.handleClient();
 
-  // Run LED strip breathing effect continuously
-  ledStripLoop();
+  // Run LED strip effect only when enabled
+  if (stripEnabled) {
+    ledStripLoop();
+  }
 
   if (!blinkEnabled) {
     return;

@@ -61,7 +61,7 @@
                   size="small"
                   text="On"
                   :loading="loading[`${t.id}-on`]"
-                  @click="callOn(t, '/blink/on')"
+                  @click="callOn(t, '/strip/on')"
                 />
                 <v-btn
                   class="mr-2"
@@ -69,14 +69,15 @@
                   size="small"
                   text="Off"
                   :loading="loading[`${t.id}-off`]"
-                  @click="callOn(t, '/blink/off')"
+                  @click="callOn(t, '/strip/off')"
                 />
                 <v-btn
+                  class="mr-2"
                   variant="tonal"
                   size="small"
-                  text="Toggle"
-                  :loading="loading[`${t.id}-toggle`]"
-                  @click="callOn(t, '/blink/toggle')"
+                  text="Mode"
+                  :loading="loading[`${t.id}-mode`]"
+                  @click="callOn(t, '/strip/mode/toggle')"
                 />
                 <v-btn
                   variant="outlined"
@@ -121,7 +122,7 @@
   function initializeLoadingStates() {
     if (towersToUse.value && Array.isArray(towersToUse.value)) {
       towersToUse.value.forEach(tower => {
-        const actions = ['status', 'on', 'off', 'toggle', 'name'];
+        const actions = ['status', 'on', 'off', 'mode', 'name'];
         actions.forEach(action => {
           const key = `${tower.id}-${action}`;
           if (!(key in loading.value)) {
