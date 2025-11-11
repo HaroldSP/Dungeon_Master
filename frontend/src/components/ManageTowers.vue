@@ -86,7 +86,44 @@
                   :loading="loading[`${t.id}-name`]"
                   @click="checkTowerName(t)"
                 />
+                <v-btn
+                  class="mr-2"
+                  color="success"
+                  size="small"
+                  text="Roll Dice"
+                  :loading="loading[`${t.id}-dice`]"
+                  @click="captureDice(t)"
+                />
               </template>
+            </v-list-item>
+            <v-list-item
+              v-if="diceResults[t.id]"
+              class="mt-2"
+            >
+              <v-alert
+                type="success"
+                variant="tonal"
+                class="w-100"
+              >
+                <div class="d-flex align-center">
+                  <v-icon
+                    icon="mdi-dice-multiple"
+                    class="mr-2"
+                    size="large"
+                  />
+                  <div>
+                    <strong>Dice Roll Result:</strong>
+                    {{ diceResults[t.id].value }}
+                    <div
+                      v-if="diceResults[t.id].timestamp"
+                      class="text-caption"
+                    >
+                      Rolled at
+                      {{ formatTimestamp(diceResults[t.id].timestamp) }}
+                    </div>
+                  </div>
+                </div>
+              </v-alert>
             </v-list-item>
           </v-list>
           <v-alert
@@ -116,13 +153,14 @@
   const editingName = ref(null);
   const editingNameValue = ref('');
   const loading = ref({});
+  const diceResults = ref({}); // { towerId: { value, timestamp, detected } }
   let statusCheckTimeout = null;
 
   // Initialize loading states for all possible tower actions
   function initializeLoadingStates() {
     if (towersToUse.value && Array.isArray(towersToUse.value)) {
       towersToUse.value.forEach(tower => {
-        const actions = ['status', 'on', 'off', 'mode', 'name'];
+        const actions = ['status', 'on', 'off', 'mode', 'name', 'dice'];
         actions.forEach(action => {
           const key = `${tower.id}-${action}`;
           if (!(key in loading.value)) {
@@ -304,6 +342,58 @@
     } finally {
       loading.value[loadingKey] = false;
     }
+  }
+
+  async function captureDice(tower) {
+    const loadingKey = `${tower.id}-dice`;
+
+    try {
+      loading.value[loadingKey] = true;
+      const res = await fetch(`${tower.url}/dice/capture`, {
+        cache: 'no-store',
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        manageStatus.value = `${tower.name} dice capture failed: ${errorText}`;
+        return;
+      }
+
+      const text = await res.text();
+      const data = JSON.parse(text);
+
+      if (data.ok && data.detected) {
+        diceResults.value[tower.id] = {
+          value: data.value,
+          timestamp: data.timestamp,
+          detected: data.detected,
+        };
+        manageStatus.value = `${tower.name} → Dice rolled: ${data.value}!`;
+        // Mark tower as online
+        towerStore.addOrUpdateTower({
+          id: tower.id,
+          online: true,
+        });
+      } else {
+        manageStatus.value = `${tower.name} → No dice detected. Try rolling again.`;
+        diceResults.value[tower.id] = {
+          value: 0,
+          timestamp: data.timestamp || Date.now(),
+          detected: false,
+        };
+      }
+    } catch (e) {
+      manageStatus.value = `${tower.name} dice capture error: ${e}`;
+      console.error('Dice capture error:', e);
+    } finally {
+      loading.value[loadingKey] = false;
+    }
+  }
+
+  function formatTimestamp(timestamp) {
+    if (!timestamp) return '';
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString();
   }
 
   function startEdit(tower) {
