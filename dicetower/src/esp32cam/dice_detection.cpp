@@ -27,74 +27,10 @@ static inline int clampi(int v, int lo, int hi) {
   return v;
 }
 
-static int countPips(const uint8_t* gray, int w, int h, int thresh,
-                     int& outMinX, int& outMinY, int& outMaxX, int& outMaxY) {
-  const int total = w * h;
-  uint8_t* bin = (uint8_t*)malloc(total);
-  if (!bin) return 0;
-  for (int i = 0; i < total; ++i) {
-    bin[i] = (gray[i] < thresh) ? 1 : 0;
-  }
+static inline int max(int a, int b) { return (a > b) ? a : b; }
+static inline int min(int a, int b) { return (a < b) ? a : b; }
 
-  const int minArea = (w * h) / 2000;
-  const int maxArea = (w * h) / 15;
-  int* stackX = (int*)malloc(total * sizeof(int));
-  int* stackY = (int*)malloc(total * sizeof(int));
-  if (!stackX || !stackY) {
-    free(bin);
-    if (stackX) free(stackX);
-    if (stackY) free(stackY);
-    return 0;
-  }
-  auto idxOf = [w](int x, int y){ return y * w + x; };
-
-  int globalMinX = w, globalMinY = h, globalMaxX = -1, globalMaxY = -1;
-  int blobs = 0;
-  for (int y = 1; y < h - 1; ++y) {
-    for (int x = 1; x < w - 1; ++x) {
-      int p = idxOf(x,y);
-      if (!bin[p]) continue;
-      int top = 0; stackX[top]=x; stackY[top]=y; top++; bin[p]=0;
-      int area = 0, minX=x, maxX=x, minY=y, maxY=y;
-      while (top) {
-        top--;
-        int cx = stackX[top], cy = stackY[top];
-        area++;
-        if (cx < minX) minX=cx; if (cx > maxX) maxX=cx;
-        if (cy < minY) minY=cy; if (cy > maxY) maxY=cy;
-        const int nx[4]={cx-1,cx+1,cx,cx};
-        const int ny[4]={cy,cy,cy-1,cy+1};
-        for (int i=0;i<4;++i){
-          int qx=nx[i], qy=ny[i];
-          if ((unsigned)qx >= (unsigned)w || (unsigned)qy >= (unsigned)h) continue;
-          int qi = idxOf(qx,qy);
-          if (bin[qi]) { bin[qi]=0; stackX[top]=qx; stackY[top]=qy; top++; }
-        }
-      }
-      if (area < minArea || area > maxArea) continue;
-      int bw = maxX - minX + 1, bh = maxY - minY + 1;
-      float aspect = (float)bw / (float)bh;
-      if (aspect < 0.5f || aspect > 2.0f) continue;
-      float fill = (float)area / (float)(bw*bh);
-      if (fill < 0.3f || fill > 0.85f) continue;
-      blobs++;
-      if (minX < globalMinX) globalMinX = minX;
-      if (minY < globalMinY) globalMinY = minY;
-      if (maxX > globalMaxX) globalMaxX = maxX;
-      if (maxY > globalMaxY) globalMaxY = maxY;
-      if (blobs > 20) { blobs = 0; y=h; break; }
-    }
-  }
-  free(bin); free(stackX); free(stackY);
-  if (blobs >= 1) {
-    outMinX = globalMinX;
-    outMinY = globalMinY;
-    outMaxX = globalMaxX;
-    outMaxY = globalMaxY;
-    return blobs;
-  }
-  return 0;
-}
+// Pip detection removed - only detecting numbers 1-20 now
 
 static int classifyDigit(const uint8_t* gray, int w, int h) {
   if (w < 3 || h < 5) return -1;
@@ -143,19 +79,33 @@ static int classifyDigit(const uint8_t* gray, int w, int h) {
     }
     if (err<bestErr){bestErr=err; bestDigit=d;}
   }
-  if (bestErr > 0.85f) return -1;
+  if (bestErr > 1.2f) return -1;  // Relaxed threshold for better detection
   return bestDigit;
 }
 
-static int classifyDigitRegion(const uint8_t* gray, int w, int h, int x0, int y0, int x1, int y1) {
-  if (x0 < 0 || y0 < 0 || x1 >= w || y1 >= h || x0 > x1 || y0 > y1) return -1;
+static int classifyDigitRegion(const uint8_t* gray, int w, int h,
+                               int x0, int y0, int x1, int y1,
+                               bool invertPixels) {
+  if (x0 < 0 || y0 < 0 || x1 < 0 || y1 < 0 ||
+      x0 >= w || x1 >= w || y0 >= h || y1 >= h ||
+      x0 > x1 || y0 > y1) {
+    return -1;
+  }
   const int roiW = x1 - x0 + 1;
   const int roiH = y1 - y0 + 1;
   if (roiW < 4 || roiH < 6) return -1;
   uint8_t* roi = (uint8_t*)malloc((size_t)roiW * roiH);
   if (!roi) return -1;
   for (int yy = 0; yy < roiH; ++yy) {
-    memcpy(&roi[yy*roiW], &gray[(y0+yy)*w + x0], roiW);
+    uint8_t* dst = &roi[yy*roiW];
+    const uint8_t* src = &gray[(y0+yy)*w + x0];
+    if (!invertPixels) {
+      memcpy(dst, src, roiW);
+    } else {
+      for (int xx = 0; xx < roiW; ++xx) {
+        dst[xx] = (uint8_t)(255 - src[xx]);
+      }
+    }
   }
   int digit = classifyDigit(roi, roiW, roiH);
   free(roi);
@@ -163,11 +113,11 @@ static int classifyDigitRegion(const uint8_t* gray, int w, int h, int x0, int y0
 }
 
 bool detectDiceFromRGB(const uint8_t* rgb, int width, int height, DiceDetection& out) {
-  out.detected = false; out.value = 0; out.x=out.y=out.w=out.h=0;
+  out.detected = false; out.value = 0; out.x=out.y=out.w=out.h=0; out.confidence = 0.0f;
   if (!rgb || width<32 || height<32) return false;
 
-  const int stepX = max(1, width / 160);
-  const int stepY = max(1, height / 120);
+  const int stepX = max(1, width / 120);
+  const int stepY = max(1, height / 90);
   const int w = width / stepX;
   const int h = height / stepY;
   const int total = w * h;
@@ -188,31 +138,28 @@ bool detectDiceFromRGB(const uint8_t* rgb, int width, int height, DiceDetection&
   }
 
   const uint8_t mean = (uint8_t)(sum / (total ? total : 1));
-  int k = max(18, min(40, mean / 4));
-  int thresh = (int)mean - k;
-  if (thresh < 35) thresh = 35;
+  int offset = max(20, min(60, (int)mean / 2));
+  int threshDark = (int)mean - offset;
+  if (threshDark < 25) threshDark = 25;
+  int threshBright = (int)mean + offset;
+  if (threshBright > 230) threshBright = 230;
 
-  int pipMinX=0, pipMinY=0, pipMaxX=0, pipMaxY=0;
-  int pipCount = countPips(gray, w, h, thresh, pipMinX, pipMinY, pipMaxX, pipMaxY);
-  if (pipCount >= 1 && pipCount <= 20) {
-    out.detected = true;
-    out.value = pipCount;
-    int margin = 1;
-    out.x = clampi(pipMinX * stepX - margin*stepX, 0, width-1);
-    out.y = clampi(pipMinY * stepY - margin*stepY, 0, height-1);
-    int x2 = clampi((pipMaxX + 1 + margin) * stepX, 0, width-1);
-    int y2 = clampi((pipMaxY + 1 + margin) * stepY, 0, height-1);
-    out.w = max(1, x2 - out.x);
-    out.h = max(1, y2 - out.y);
-    free(gray);
-    return true;
+  int darkPixels = 0;
+  int brightPixels = 0;
+  for (int i = 0; i < total; ++i) {
+    uint8_t v = gray[i];
+    if (v < threshDark) darkPixels++;
+    if (v > threshBright) brightPixels++;
   }
+  bool useBright = (brightPixels > 0) && (brightPixels > darkPixels);
 
+  // Find bounding box of target regions (numbers)
   int boxMinX = w, boxMinY = h, boxMaxX = -1, boxMaxY = -1;
   for (int y=0; y<h; ++y){
     for (int x=0; x<w; ++x){
       uint8_t val = gray[y*w + x];
-      if (val < thresh) {
+      bool mask = useBright ? (val > threshBright) : (val < threshDark);
+      if (mask) {
         if (x < boxMinX) boxMinX = x;
         if (x > boxMaxX) boxMaxX = x;
         if (y < boxMinY) boxMinY = y;
@@ -227,6 +174,11 @@ bool detectDiceFromRGB(const uint8_t* rgb, int width, int height, DiceDetection&
 
   int boxW = boxMaxX - boxMinX + 1;
   int boxH = boxMaxY - boxMinY + 1;
+  int maskPixels = useBright ? brightPixels : darkPixels;
+  if (maskPixels < (total / 800) || maskPixels > (total * 3) / 5) {
+    free(gray);
+    return false;
+  }
 
   int value = -1;
   if (boxW > boxH * 1.4f) {
@@ -237,7 +189,8 @@ bool detectDiceFromRGB(const uint8_t* rgb, int width, int height, DiceDetection&
     for (int cx = searchStart; cx <= searchEnd; ++cx) {
       uint32_t colSum = 0;
       for (int y=boxMinY; y<=boxMaxY; ++y) {
-        colSum += (uint32_t)(255 - gray[y*w + cx]);
+        uint8_t v = gray[y*w + cx];
+        colSum += useBright ? v : (uint32_t)(255 - v);
       }
       if (colSum < bestScore) {
         bestScore = colSum;
@@ -245,8 +198,8 @@ bool detectDiceFromRGB(const uint8_t* rgb, int width, int height, DiceDetection&
       }
     }
     if (bestSplit > boxMinX && bestSplit < boxMaxX) {
-      int leftDigit = classifyDigitRegion(gray, w, h, boxMinX, boxMinY, bestSplit, boxMaxY);
-      int rightDigit = classifyDigitRegion(gray, w, h, bestSplit+1, boxMinY, boxMaxX, boxMaxY);
+      int leftDigit = classifyDigitRegion(gray, w, h, boxMinX, boxMinY, bestSplit, boxMaxY, useBright);
+      int rightDigit = classifyDigitRegion(gray, w, h, bestSplit+1, boxMinY, boxMaxX, boxMaxY, useBright);
       if (leftDigit > 0 && rightDigit >= 0) {
         int combined = leftDigit * 10 + rightDigit;
         if (combined >= 1 && combined <= 20) {
@@ -257,8 +210,8 @@ bool detectDiceFromRGB(const uint8_t* rgb, int width, int height, DiceDetection&
   }
 
   if (value < 0) {
-    int digit = classifyDigitRegion(gray, w, h, boxMinX, boxMinY, boxMaxX, boxMaxY);
-    if (digit >= 0) value = digit;
+    int digit = classifyDigitRegion(gray, w, h, boxMinX, boxMinY, boxMaxX, boxMaxY, useBright);
+    if (digit >= 1 && digit <= 9) value = digit;  // Only single digits 1-9
   }
 
   if (value >= 1 && value <= 20) {
@@ -277,6 +230,7 @@ bool detectDiceFromRGB(const uint8_t* rgb, int width, int height, DiceDetection&
     out.w = max(1, x2 - out.x);
     out.h = max(1, y2 - out.y);
     free(gray);
+    out.confidence = 1.0f;
     return true;
   }
 

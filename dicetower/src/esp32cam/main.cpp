@@ -27,10 +27,12 @@
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
 
+static constexpr bool kOverlayEnabled = true;
+
 static WebServer httpServer(80);
 static bool cameraInitialized = false;
 
-static DiceDetection lastDetection = {false, 0, 0, 0, 0, 0};
+static DiceDetection lastDetection = {false, 0, 0, 0, 0, 0, 0.0f};
 static unsigned long lastDetectionTimestamp = 0;
 
 static inline int clampCoord(int v, int lo, int hi) {
@@ -214,20 +216,20 @@ static bool initCamera() {
   }
   
   sensor_t * s = esp_camera_sensor_get();
-  s->set_brightness(s, 0);     // -2 to 2
-  s->set_contrast(s, 0);       // -2 to 2
-  s->set_saturation(s, 0);     // -2 to 2
-  s->set_special_effect(s, 0); // 0 to 6 (0-No Effect, 1-Negative, 2-Grayscale, 3-Red Tint, 4-Green Tint, 5-Blue Tint, 6-Sepia)
+  s->set_brightness(s, 2);     // -2 to 2
+  s->set_contrast(s, 1);       // -2 to 2
+  s->set_saturation(s, 1);     // -2 to 2
+  s->set_special_effect(s, 2); // 2 = Grayscale output
   s->set_whitebal(s, 1);       // 0 = disable , 1 = enable
   s->set_awb_gain(s, 1);       // 0 = disable , 1 = enable
   s->set_wb_mode(s, 0);        // 0 to 4 - if awb_gain enabled (0 - Auto, 1 - Sunny, 2 - Cloudy, 3 - Office, 4 - Home)
   s->set_exposure_ctrl(s, 1);  // 0 = disable , 1 = enable
   s->set_aec2(s, 0);           // 0 = disable , 1 = enable
-  s->set_ae_level(s, 0);       // -2 to 2
-  s->set_aec_value(s, 300);    // 0 to 1200
+  s->set_ae_level(s, 2);       // -2 to 2
+  s->set_aec_value(s, 600);    // 0 to 1200
   s->set_gain_ctrl(s, 1);      // 0 = disable , 1 = enable
   s->set_agc_gain(s, 0);       // 0 to 30
-  s->set_gainceiling(s, (gainceiling_t)0);  // 0 to 6
+  s->set_gainceiling(s, (gainceiling_t)2);  // 0 to 6
   s->set_bpc(s, 0);            // 0 = disable , 1 = enable
   s->set_wpc(s, 1);            // 0 = disable , 1 = enable
   s->set_raw_gma(s, 1);        // 0 = disable , 1 = enable
@@ -255,18 +257,32 @@ static void handleRoot() {
     "<h4>Camera Stream</h4>"
     "<img id='mjpeg' alt='Stream will appear here'/>"
     "<div style='display:flex;gap:8px'>"
-      "<button onclick=startStream()>Start Stream</button>"
-      "<button onclick=stopStream()>Stop Stream</button>"
+      "<button onclick=startStream() title='GET /camera/stream - Starts MJPEG video stream'>Start Stream</button>"
+      "<button onclick=stopStream() title='Stops the video stream'>Stop Stream</button>"
     "</div>"
     "<h4>Dice Recognition</h4>"
-    "<button onclick=doGet('/dice/capture')>Capture & Recognize Dice</button>"
-    "<button onclick=doGet('/dice/status')>Get Last Result</button>"
+    "<button onclick=doGet('/dice/capture') title='GET /dice/capture - Captures a frame and runs dice detection'>Capture & Recognize Dice</button>"
+    "<button onclick=doGet('/dice/status') title='GET /dice/status - Returns last detection result'>Get Last Result</button>"
+    "<div id='detectionInfo' style='margin-top:10px;font-family:monospace;color:#0cf;'>Waiting for detections...</div>"
     "<h4>Provision Wi‑Fi</h4>"
     "<input id='ssid' placeholder='SSID'/>"
     "<input id='pass' type='password' placeholder='Password (optional)'/>"
-    "<button onclick=provision()>Save & Connect</button>"
+    "<button onclick=provision() title='GET /provision?ssid=...&pass=... - Saves Wi-Fi credentials and connects'>Save & Connect</button>"
+    "<h4>API Endpoints</h4>"
+    "<div style='background:#fff;border:1px solid #ccc;padding:12px;border-radius:4px;font-family:monospace;font-size:12px;line-height:1.6;color:#222'>"
+    "<strong>GET /</strong> - This page<br>"
+    "<strong>GET /status</strong> - Camera and dice detection status (JSON)<br>"
+    "<strong>GET /camera/stream</strong> - MJPEG video stream<br>"
+    "<strong>GET /dice/capture</strong> - Capture frame and detect dice (JSON)<br>"
+    "<strong>GET /dice/status</strong> - Last detection result (JSON)<br>"
+    "<strong>POST /external/detection</strong> - Accept external detection (JSON body)<br>"
+    "<strong>GET /provision?ssid=...&pass=...</strong> - Save Wi-Fi credentials<br>"
+    "<strong>GET /name?action=get</strong> - Get device name<br>"
+    "<strong>GET /name?action=set&name=...</strong> - Set device name<br>"
+    "<strong>GET /wipe</strong> - Wipe credentials and reboot<br>"
+    "</div>"
     "<h4>Danger Zone</h4>"
-    "<button onclick=doGet('/wipe') style='background:#b00;color:#fff'>Wipe Credentials & Reboot</button>"
+    "<button onclick=doGet('/wipe') style='background:#b00;color:#fff' title='GET /wipe - Wipes saved Wi-Fi credentials and reboots'>Wipe Credentials & Reboot</button>"
     "<script>"
     "function show(o){document.getElementById('msg').textContent=(typeof o==='string')?o:JSON.stringify(o,null,2);}"
     "async function doGet(path){try{const r=await fetch(path,{cache:'no-store'});const t=await r.text();show(t);}catch(e){show('ERR '+e);}}"
@@ -274,8 +290,28 @@ static void handleRoot() {
     "if(!ssid){show('Missing SSID');return;}"
     "const url='/provision?ssid='+encodeURIComponent(ssid)+'&pass='+encodeURIComponent(pass);"
     "try{const r=await fetch(url,{cache:'no-store'});const t=await r.text();show(t);}catch(e){show('ERR '+e);}}"
-    "function startStream(){const img=document.getElementById('mjpeg');img.src='/camera/stream';}"
-    "function stopStream(){const img=document.getElementById('mjpeg');img.removeAttribute('src');img.src='';}"
+    "let statusPolling=true;"
+    "function startStream(){const img=document.getElementById('mjpeg');img.src='/camera/stream';statusPolling=true;}"
+    "function stopStream(){const img=document.getElementById('mjpeg');img.removeAttribute('src');img.src='';statusPolling=false;}"
+    "async function pollStatus(){"
+    "  try{"
+    "    if(!statusPolling){setTimeout(pollStatus,2000);return;}"
+    "    const res=await fetch('/status',{cache:'no-store'});"
+    "    const data=await res.json();"
+    "    const info=document.getElementById('detectionInfo');"
+    "    if(data && data.dice && data.dice.detected){"
+    "      const conf=(data.dice.confidence||0).toFixed(2);"
+    "      info.textContent=`Die=${data.dice.value}  conf=${conf}  device_ms=${data.dice.timestamp}`;"
+    "    }else{"
+    "      info.textContent='No detection';"
+    "    }"
+    "  }catch(e){"
+    "    document.getElementById('detectionInfo').textContent='Waiting for device...';"
+    "  }finally{"
+    "    setTimeout(pollStatus,2000);"
+    "  }"
+    "}"
+    "pollStatus();"
     "</script>"
     "</body></html>";
   httpServer.send(200, "text/html", html);
@@ -286,6 +322,7 @@ static void handleStatus() {
                 ",\"dice\":{\"detected\":" + (lastDetection.detected?"true":"false") +
                 ",\"value\":" + lastDetection.value +
                 ",\"timestamp\":" + lastDetectionTimestamp +
+                ",\"confidence\":" + String(lastDetection.confidence, 3) +
                 ",\"x\":" + lastDetection.x +
                 ",\"y\":" + lastDetection.y +
                 ",\"w\":" + lastDetection.w +
@@ -321,22 +358,24 @@ static void handleCameraStream() {
     uint8_t* outJpg = nullptr;
     size_t outLen = 0;
     bool ok = false;
-    DiceDetection det = {false, 0, 0, 0, 0, 0};
+    DiceDetection det = {false, 0, 0, 0, 0, 0, 0.0f};
     if (rgb && fmt2rgb888(fb->buf, fb->len, fb->format, rgb)) {
-      detectDiceFromRGB(rgb, fb->width, fb->height, det);
-      if (det.detected) {
-        drawRectRGB(rgb, fb->width, fb->height, det.x, det.y, det.w, det.h, 0, 255, 0);
-        int scale = 3;
-        int labelY = clampCoord(det.y - scale * 7 - 4, 0, fb->height - scale * 7);
-        int labelX = clampCoord(det.x + 4, 0, fb->width - 1);
-        drawValueLabel(rgb, fb->width, fb->height, labelX, labelY, det.value, 255, 255, 0, scale);
+      if (kOverlayEnabled) {
+        detectDiceFromRGB(rgb, fb->width, fb->height, det);
+        if (det.detected) {
+          drawRectRGB(rgb, fb->width, fb->height, det.x, det.y, det.w, det.h, 0, 255, 0);
+          int scale = 3;
+          int labelY = clampCoord(det.y - scale * 7 - 4, 0, fb->height - scale * 7);
+          int labelX = clampCoord(det.x + 4, 0, fb->width - 1);
+          drawValueLabel(rgb, fb->width, fb->height, labelX, labelY, det.value, 255, 255, 0, scale);
+        }
+        lastDetection = det;
+        lastDetectionTimestamp = millis();
       }
       if (fmt2jpg(rgb, fb->width*fb->height*3, fb->width, fb->height, PIXFORMAT_RGB888, 80, &outJpg, &outLen)) {
         ok = true;
       }
     }
-    lastDetection = det;
-    lastDetectionTimestamp = millis();
 
     // Write headers
     client.write((const uint8_t*)kStreamPartHeader, strlen(kStreamPartHeader));
@@ -376,7 +415,7 @@ static void handleDiceCapture() {
     return;
   }
 
-  DiceDetection detection = {false, 0, 0, 0, 0, 0};
+  DiceDetection detection = {false, 0, 0, 0, 0, 0, 0.0f};
   if (fb->format == PIXFORMAT_JPEG) {
     size_t rgbBytes = (size_t)fb->width * (size_t)fb->height * 3;
     uint8_t* rgb = (uint8_t*)malloc(rgbBytes);
@@ -406,12 +445,54 @@ static void handleDiceStatus() {
   String json = String("{\"ok\":true,\"detected\":") + (lastDetection.detected?"true":"false") +
                 ",\"value\":" + lastDetection.value +
                 ",\"timestamp\":" + lastDetectionTimestamp +
+                ",\"confidence\":" + String(lastDetection.confidence, 3) +
                 ",\"x\":" + lastDetection.x +
                 ",\"y\":" + lastDetection.y +
                 ",\"w\":" + lastDetection.w +
                 ",\"h\":" + lastDetection.h + "}";
   addNoCacheAndCors();
   httpServer.send(200, "application/json", json);
+}
+
+static void handleExternalDetection() {
+  if (httpServer.method() == HTTP_OPTIONS) {
+    handleOptions();
+    return;
+  }
+  if (httpServer.method() != HTTP_POST) {
+    addNoCacheAndCors();
+    httpServer.send(405, "application/json", "{\"ok\":false,\"error\":\"method not allowed\"}");
+    return;
+  }
+  String body = httpServer.arg("plain");
+  if (!body.length()) {
+    addNoCacheAndCors();
+    httpServer.send(400, "application/json", "{\"ok\":false,\"error\":\"empty body\"}");
+    return;
+  }
+
+  JsonDocument doc;
+  DeserializationError err = deserializeJson(doc, body);
+  if (err) {
+    addNoCacheAndCors();
+    httpServer.send(400, "application/json", "{\"ok\":false,\"error\":\"invalid json\"}");
+    return;
+  }
+
+  DiceDetection incoming = lastDetection;
+  incoming.detected = doc["detected"] | true;
+  incoming.value = doc["value"] | incoming.value;
+  incoming.confidence = doc["confidence"] | incoming.confidence;
+  incoming.x = doc["x"] | 0;
+  incoming.y = doc["y"] | 0;
+  incoming.w = doc["w"] | 0;
+  incoming.h = doc["h"] | 0;
+
+  lastDetection = incoming;
+  lastDetectionTimestamp = millis();
+
+  addNoCacheAndCors();
+  httpServer.send(200, "application/json", "{\"ok\":true}");
 }
 
 static void handleProvision() {
@@ -537,6 +618,8 @@ void setup() {
   httpServer.on("/dice/status", handleDiceStatus);
   httpServer.on("/dice/status", HTTP_OPTIONS, handleOptions);
   httpServer.on("/camera/stream", handleCameraStream);
+  httpServer.on("/external/detection", HTTP_POST, handleExternalDetection);
+  httpServer.on("/external/detection", HTTP_OPTIONS, handleOptions);
   httpServer.on("/provision", handleProvision);
   httpServer.on("/provision", HTTP_OPTIONS, handleOptions);
   httpServer.on("/wipe", handleWipe);

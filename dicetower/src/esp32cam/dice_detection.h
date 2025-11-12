@@ -8,6 +8,7 @@ struct DiceDetection {
   int y;
   int w;
   int h;
+  float confidence;
 };
 
 extern const uint8_t kDigitFont5x7[10][7];
