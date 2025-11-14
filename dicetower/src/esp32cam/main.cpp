@@ -35,7 +35,16 @@ static bool cameraInitialized = false;
 static DiceDetection lastDetection = {false, 0, 0, 0, 0, 0, 0.0f};
 static unsigned long lastDetectionTimestamp = 0;
 
+// Camera settings (runtime adjustable)
+static int streamDelayMs = 1;  // Latency control
+
 static inline int clampCoord(int v, int lo, int hi) {
+  if (v < lo) return lo;
+  if (v > hi) return hi;
+  return v;
+}
+
+static inline int clampi(int v, int lo, int hi) {
   if (v < lo) return lo;
   if (v > hi) return hi;
   return v;
@@ -264,6 +273,14 @@ static void handleRoot() {
     "<button onclick=doGet('/dice/capture') title='GET /dice/capture - Captures a frame and runs dice detection'>Capture & Recognize Dice</button>"
     "<button onclick=doGet('/dice/status') title='GET /dice/status - Returns last detection result'>Get Last Result</button>"
     "<div id='detectionInfo' style='margin-top:10px;font-family:monospace;color:#0cf;'>Waiting for detections...</div>"
+    "<h4>Camera Settings</h4>"
+    "<div style='margin-bottom:8px'><label>Brightness: <span id='brightnessVal'>2</span></label><br><input type='range' id='brightness' min='-2' max='2' value='2' oninput='updateBrightness(this.value)'/></div>"
+    "<div style='margin-bottom:8px'><label>Contrast: <span id='contrastVal'>1</span></label><br><input type='range' id='contrast' min='-2' max='2' value='1' oninput='updateContrast(this.value)'/></div>"
+    "<div style='margin-bottom:8px'><label>Saturation: <span id='saturationVal'>1</span></label><br><input type='range' id='saturation' min='-2' max='2' value='1' oninput='updateSaturation(this.value)'/></div>"
+    "<div style='margin-bottom:8px'><label>Exposure Level: <span id='aeLevelVal'>2</span></label><br><input type='range' id='aeLevel' min='-2' max='2' value='2' oninput='updateAeLevel(this.value)'/></div>"
+    "<div style='margin-bottom:8px'><label>Exposure Value: <span id='aecValueVal'>600</span></label><br><input type='range' id='aecValue' min='0' max='1200' step='10' value='600' oninput='updateAecValue(this.value)'/></div>"
+    "<div style='margin-bottom:8px'><label>Stream Latency (ms): <span id='delayVal'>1</span></label><br><input type='range' id='delay' min='0' max='100' value='1' oninput='updateDelay(this.value)'/></div>"
+    "<button onclick=loadCameraSettings()>Load Current Settings</button>"
     "<h4>Provision Wi‑Fi</h4>"
     "<input id='ssid' placeholder='SSID'/>"
     "<input id='pass' type='password' placeholder='Password (optional)'/>"
@@ -279,6 +296,8 @@ static void handleRoot() {
     "<strong>GET /provision?ssid=...&pass=...</strong> - Save Wi-Fi credentials<br>"
     "<strong>GET /name?action=get</strong> - Get device name<br>"
     "<strong>GET /name?action=set&name=...</strong> - Set device name<br>"
+    "<strong>GET /camera/settings</strong> - Get camera settings (JSON)<br>"
+    "<strong>POST /camera/settings</strong> - Update camera settings (JSON body)<br>"
     "<strong>GET /wipe</strong> - Wipe credentials and reboot<br>"
     "</div>"
     "<h4>Danger Zone</h4>"
@@ -312,6 +331,15 @@ static void handleRoot() {
     "  }"
     "}"
     "pollStatus();"
+    "let camSettings={brightness:2,contrast:1,saturation:1,ae_level:2,aec_value:600,stream_delay_ms:1};"
+    "async function loadCameraSettings(){try{const r=await fetch('/camera/settings',{cache:'no-store'});const d=await r.json();if(d.ok){camSettings=d;document.getElementById('brightness').value=d.brightness||2;document.getElementById('brightnessVal').textContent=d.brightness||2;document.getElementById('contrast').value=d.contrast||1;document.getElementById('contrastVal').textContent=d.contrast||1;document.getElementById('saturation').value=d.saturation||1;document.getElementById('saturationVal').textContent=d.saturation||1;document.getElementById('aeLevel').value=d.ae_level||2;document.getElementById('aeLevelVal').textContent=d.ae_level||2;document.getElementById('aecValue').value=d.aec_value||600;document.getElementById('aecValueVal').textContent=d.aec_value||600;document.getElementById('delay').value=d.stream_delay_ms||1;document.getElementById('delayVal').textContent=d.stream_delay_ms||1;show('Settings loaded');}}catch(e){show('ERR loading settings: '+e);}}"
+    "async function updateCameraSetting(key,val){camSettings[key]=parseInt(val);try{const r=await fetch('/camera/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(camSettings),cache:'no-store'});if(r.ok){show(key+' updated');}else{show('Failed to update '+key);}}catch(e){show('ERR updating '+key+': '+e);}}"
+    "function updateBrightness(v){document.getElementById('brightnessVal').textContent=v;updateCameraSetting('brightness',v);}"
+    "function updateContrast(v){document.getElementById('contrastVal').textContent=v;updateCameraSetting('contrast',v);}"
+    "function updateSaturation(v){document.getElementById('saturationVal').textContent=v;updateCameraSetting('saturation',v);}"
+    "function updateAeLevel(v){document.getElementById('aeLevelVal').textContent=v;updateCameraSetting('ae_level',v);}"
+    "function updateAecValue(v){document.getElementById('aecValueVal').textContent=v;updateCameraSetting('aec_value',v);}"
+    "function updateDelay(v){document.getElementById('delayVal').textContent=v;updateCameraSetting('stream_delay_ms',v);}"
     "</script>"
     "</body></html>";
   httpServer.send(200, "text/html", html);
@@ -393,8 +421,8 @@ static void handleCameraStream() {
     if (rgb) free(rgb);
     if (outJpg) free(outJpg);
 
-    // Small yield to keep Wi‑Fi happy
-    delay(1);
+    // Configurable delay to control latency
+    delay(streamDelayMs);
 
     // Next boundary for the following frame
     client.write((const uint8_t*)kStreamBoundary, strlen(kStreamBoundary));
@@ -563,6 +591,109 @@ static void handleName() {
   }
 }
 
+static void handleCameraSettings() {
+  if (httpServer.method() == HTTP_OPTIONS) {
+    handleOptions();
+    return;
+  }
+  
+  if (!cameraInitialized) {
+    addNoCacheAndCors();
+    httpServer.send(500, "application/json", "{\"ok\":false,\"error\":\"camera not initialized\"}");
+    return;
+  }
+  
+  sensor_t * s = esp_camera_sensor_get();
+  if (!s) {
+    addNoCacheAndCors();
+    httpServer.send(500, "application/json", "{\"ok\":false,\"error\":\"sensor not available\"}");
+    return;
+  }
+  
+  if (httpServer.method() == HTTP_GET) {
+    // Return current settings
+    JsonDocument doc;
+    doc["ok"] = true;
+    doc["brightness"] = 2;  // Default, sensor doesn't expose getter
+    doc["contrast"] = 1;
+    doc["saturation"] = 1;
+    doc["special_effect"] = 2;
+    doc["ae_level"] = 2;
+    doc["aec_value"] = 600;
+    doc["agc_gain"] = 0;
+    doc["gainceiling"] = 2;
+    doc["stream_delay_ms"] = streamDelayMs;
+    
+    String json;
+    serializeJson(doc, json);
+    addNoCacheAndCors();
+    httpServer.send(200, "application/json", json);
+    return;
+  }
+  
+  if (httpServer.method() == HTTP_POST) {
+    String body = httpServer.arg("plain");
+    if (!body.length()) {
+      addNoCacheAndCors();
+      httpServer.send(400, "application/json", "{\"ok\":false,\"error\":\"empty body\"}");
+      return;
+    }
+    
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, body);
+    if (err) {
+      addNoCacheAndCors();
+      httpServer.send(400, "application/json", "{\"ok\":false,\"error\":\"invalid json\"}");
+      return;
+    }
+    
+    // Apply settings
+    if (doc["brightness"].is<int>()) {
+      int val = doc["brightness"];
+      s->set_brightness(s, clampi(val, -2, 2));
+    }
+    if (doc["contrast"].is<int>()) {
+      int val = doc["contrast"];
+      s->set_contrast(s, clampi(val, -2, 2));
+    }
+    if (doc["saturation"].is<int>()) {
+      int val = doc["saturation"];
+      s->set_saturation(s, clampi(val, -2, 2));
+    }
+    if (doc["special_effect"].is<int>()) {
+      int val = doc["special_effect"];
+      s->set_special_effect(s, clampi(val, 0, 6));
+    }
+    if (doc["ae_level"].is<int>()) {
+      int val = doc["ae_level"];
+      s->set_ae_level(s, clampi(val, -2, 2));
+    }
+    if (doc["aec_value"].is<int>()) {
+      int val = doc["aec_value"];
+      s->set_aec_value(s, clampi(val, 0, 1200));
+    }
+    if (doc["agc_gain"].is<int>()) {
+      int val = doc["agc_gain"];
+      s->set_agc_gain(s, clampi(val, 0, 30));
+    }
+    if (doc["gainceiling"].is<int>()) {
+      int val = doc["gainceiling"];
+      s->set_gainceiling(s, (gainceiling_t)clampi(val, 0, 6));
+    }
+    if (doc["stream_delay_ms"].is<int>()) {
+      int val = doc["stream_delay_ms"];
+      streamDelayMs = clampi(val, 0, 100);
+    }
+    
+    addNoCacheAndCors();
+    httpServer.send(200, "application/json", "{\"ok\":true}");
+    return;
+  }
+  
+  addNoCacheAndCors();
+  httpServer.send(405, "application/json", "{\"ok\":false,\"error\":\"method not allowed\"}");
+}
+
 void setup() {
   Serial.begin(115200);
   delay(50);
@@ -626,6 +757,9 @@ void setup() {
   httpServer.on("/wipe", HTTP_OPTIONS, handleOptions);
   httpServer.on("/name", handleName);
   httpServer.on("/name", HTTP_OPTIONS, handleOptions);
+  httpServer.on("/camera/settings", HTTP_GET, handleCameraSettings);
+  httpServer.on("/camera/settings", HTTP_POST, handleCameraSettings);
+  httpServer.on("/camera/settings", HTTP_OPTIONS, handleOptions);
   httpServer.onNotFound([](){
     addNoCacheAndCors();
     httpServer.send(404, "text/plain", "Not Found");

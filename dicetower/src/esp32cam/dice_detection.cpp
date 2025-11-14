@@ -79,7 +79,7 @@ static int classifyDigit(const uint8_t* gray, int w, int h) {
     }
     if (err<bestErr){bestErr=err; bestDigit=d;}
   }
-  if (bestErr > 1.2f) return -1;  // Relaxed threshold for better detection
+  if (bestErr > 1.5f) return -1;  // More relaxed threshold for better detection
   return bestDigit;
 }
 
@@ -138,11 +138,12 @@ bool detectDiceFromRGB(const uint8_t* rgb, int width, int height, DiceDetection&
   }
 
   const uint8_t mean = (uint8_t)(sum / (total ? total : 1));
-  int offset = max(20, min(60, (int)mean / 2));
+  // More aggressive thresholding for better detection
+  int offset = max(15, min(80, (int)mean / 3));
   int threshDark = (int)mean - offset;
-  if (threshDark < 25) threshDark = 25;
+  if (threshDark < 20) threshDark = 20;
   int threshBright = (int)mean + offset;
-  if (threshBright > 230) threshBright = 230;
+  if (threshBright > 240) threshBright = 240;
 
   int darkPixels = 0;
   int brightPixels = 0;
@@ -151,7 +152,8 @@ bool detectDiceFromRGB(const uint8_t* rgb, int width, int height, DiceDetection&
     if (v < threshDark) darkPixels++;
     if (v > threshBright) brightPixels++;
   }
-  bool useBright = (brightPixels > 0) && (brightPixels > darkPixels);
+  // More lenient decision - prefer bright if there's any significant amount
+  bool useBright = (brightPixels > darkPixels * 0.7f) && (brightPixels > total / 1000);
 
   // Find bounding box of target regions (numbers)
   int boxMinX = w, boxMinY = h, boxMaxX = -1, boxMaxY = -1;
@@ -175,7 +177,13 @@ bool detectDiceFromRGB(const uint8_t* rgb, int width, int height, DiceDetection&
   int boxW = boxMaxX - boxMinX + 1;
   int boxH = boxMaxY - boxMinY + 1;
   int maskPixels = useBright ? brightPixels : darkPixels;
-  if (maskPixels < (total / 800) || maskPixels > (total * 3) / 5) {
+  // More lenient pixel count thresholds
+  if (maskPixels < (total / 1200) || maskPixels > (total * 4) / 5) {
+    free(gray);
+    return false;
+  }
+  // Ensure reasonable aspect ratio
+  if (boxW < 4 || boxH < 6 || boxW > w * 0.8f || boxH > h * 0.8f) {
     free(gray);
     return false;
   }

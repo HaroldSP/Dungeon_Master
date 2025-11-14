@@ -94,6 +94,13 @@
                   :loading="loading[`${t.id}-dice`]"
                   @click="captureDice(t)"
                 />
+                <v-btn
+                  class="mr-2"
+                  color="info"
+                  size="small"
+                  text="Camera"
+                  @click="showCameraControls(t)"
+                />
               </template>
             </v-list-item>
             <v-list-item
@@ -135,6 +142,30 @@
           >
         </v-card-text>
       </v-card>
+      
+      <!-- Camera Controls Dialog -->
+      <v-dialog
+        v-model="showCameraDialog"
+        max-width="800px"
+      >
+        <v-card>
+          <v-card-title>
+            <span class="text-h6">Camera Controls</span>
+            <v-spacer></v-spacer>
+            <v-btn
+              icon="mdi-close"
+              variant="text"
+              @click="showCameraDialog = false"
+            />
+          </v-card-title>
+          <v-card-text>
+            <CameraControls
+              v-if="selectedTower"
+              :tower="selectedTower"
+            />
+          </v-card-text>
+        </v-card>
+      </v-dialog>
     </v-col>
   </v-row>
 </template>
@@ -143,6 +174,7 @@
   import { ref, onMounted, watch, nextTick } from 'vue';
   import { useTowerStore } from '../stores/towerStore';
   import { storeToRefs } from 'pinia';
+  import CameraControls from './CameraControls.vue';
 
   const towerStore = useTowerStore();
   const { towers: towersToUse } = storeToRefs(towerStore);
@@ -155,6 +187,8 @@
   const loading = ref({});
   const diceResults = ref({}); // { towerId: { value, timestamp, detected } }
   let statusCheckTimeout = null;
+  const showCameraDialog = ref(false);
+  const selectedTower = ref(null);
 
   // Initialize loading states for all possible tower actions
   function initializeLoadingStates() {
@@ -433,6 +467,11 @@
     }
 
     cancelEdit();
+  }
+
+  function showCameraControls(tower) {
+    selectedTower.value = tower;
+    showCameraDialog.value = true;
   }
 
   // Expose the check function for parent component
