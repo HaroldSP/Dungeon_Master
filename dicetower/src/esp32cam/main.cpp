@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstring>
 #include "esp_camera.h"
+#include "esp_http_server.h"
 #include "dice_detection.h"
 
 // Camera pin definitions for ESP32-CAM (AI-Thinker)
@@ -34,6 +35,15 @@ static bool cameraInitialized = false;
 
 static DiceDetection lastDetection = {false, 0, 0, 0, 0, 0, 0.0f};
 static unsigned long lastDetectionTimestamp = 0;
+
+// Wi-Fi state tracking
+static String currentApSsid;
+static IPAddress currentApIp;
+static bool staConnected = false;
+static IPAddress staIp;
+
+// Dedicated HTTP server for MJPEG stream
+static httpd_handle_t streamHttpd = nullptr;
 
 // Camera settings (runtime adjustable)
 static int streamDelayMs = 1;  // Latency control
@@ -167,9 +177,12 @@ static bool tryConnectSta(const WifiCredentials& creds, unsigned long timeoutMs 
   }
   Serial.println();
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.print("Connected, IP: "); Serial.println(WiFi.localIP());
+    staConnected = true;
+    staIp = WiFi.localIP();
+    Serial.print("Connected, IP: "); Serial.println(staIp);
     return true;
   }
+  staConnected = false;
   Serial.println("STA connect failed, falling back to AP");
   return false;
 }
@@ -273,18 +286,20 @@ static void handleRoot() {
     "<button onclick=doGet('/dice/capture') title='GET /dice/capture - Captures a frame and runs dice detection'>Capture & Recognize Dice</button>"
     "<button onclick=doGet('/dice/status') title='GET /dice/status - Returns last detection result'>Get Last Result</button>"
     "<div id='detectionInfo' style='margin-top:10px;font-family:monospace;color:#0cf;'>Waiting for detections...</div>"
+    "<button id='statusToggle' onclick=toggleStatusPolling() style='margin-top:8px'>Start Status Updates</button>"
     "<h4>Camera Settings</h4>"
-    "<div style='margin-bottom:8px'><label>Brightness: <span id='brightnessVal'>2</span></label><br><input type='range' id='brightness' min='-2' max='2' value='2' oninput='updateBrightness(this.value)'/></div>"
-    "<div style='margin-bottom:8px'><label>Contrast: <span id='contrastVal'>1</span></label><br><input type='range' id='contrast' min='-2' max='2' value='1' oninput='updateContrast(this.value)'/></div>"
-    "<div style='margin-bottom:8px'><label>Saturation: <span id='saturationVal'>1</span></label><br><input type='range' id='saturation' min='-2' max='2' value='1' oninput='updateSaturation(this.value)'/></div>"
-    "<div style='margin-bottom:8px'><label>Exposure Level: <span id='aeLevelVal'>2</span></label><br><input type='range' id='aeLevel' min='-2' max='2' value='2' oninput='updateAeLevel(this.value)'/></div>"
-    "<div style='margin-bottom:8px'><label>Exposure Value: <span id='aecValueVal'>600</span></label><br><input type='range' id='aecValue' min='0' max='1200' step='10' value='600' oninput='updateAecValue(this.value)'/></div>"
-    "<div style='margin-bottom:8px'><label>Stream Latency (ms): <span id='delayVal'>1</span></label><br><input type='range' id='delay' min='0' max='100' value='1' oninput='updateDelay(this.value)'/></div>"
+    "<div style='margin-bottom:8px'><label>Brightness (overall lightness): <span id='brightnessVal'>2</span></label><br><input type='range' id='brightness' min='-2' max='2' step='1' value='2' oninput='updateBrightness(this.value)'/><small>Negative = darker, positive = brighter (5 steps)</small></div>"
+    "<div style='margin-bottom:8px'><label>Contrast (difference between dark/light): <span id='contrastVal'>1</span></label><br><input type='range' id='contrast' min='-2' max='2' step='1' value='1' oninput='updateContrast(this.value)'/><small>Lower values flatten the image, higher values increase punch</small></div>"
+    "<div style='margin-bottom:8px'><label>Saturation (color intensity): <span id='saturationVal'>1</span></label><br><input type='range' id='saturation' min='-2' max='2' step='1' value='1' oninput='updateSaturation(this.value)'/><small>-2 = grayscale, +2 = vivid colors</small></div>"
+    "<div style='margin-bottom:8px'><label>Exposure Level (auto bias): <span id='aeLevelVal'>2</span></label><br><input type='range' id='aeLevel' min='-2' max='2' step='1' value='2' oninput='updateAeLevel(this.value)'/><small>Tells auto exposure to favor darker (-) or brighter (+) scenes</small></div>"
+    "<div style='margin-bottom:8px'><label>Exposure Value (manual shutter): <span id='aecValueVal'>600</span></label><br><input type='range' id='aecValue' min='0' max='1200' step='1' value='600' oninput='previewAecValue(this.value)' onchange='commitAecValue(this.value)'/><small>0 = darkest, 1200 = brightest (use when auto exposure struggles)</small></div>"
+    "<div style='margin-bottom:8px'><label>Stream Latency (ms): <span id='delayVal'>1</span></label><br><input type='range' id='delay' min='0' max='100' step='1' value='1' oninput='updateDelay(this.value)'/><small>Increase if Wi-Fi is noisy; 0 = lowest latency</small></div>"
     "<button onclick=loadCameraSettings()>Load Current Settings</button>"
     "<h4>Provision Wi‑Fi</h4>"
     "<input id='ssid' placeholder='SSID'/>"
     "<input id='pass' type='password' placeholder='Password (optional)'/>"
     "<button onclick=provision() title='GET /provision?ssid=...&pass=... - Saves Wi-Fi credentials and connects'>Save & Connect</button>"
+    "<div id='wifiStatus' style='white-space:pre-line;font-family:monospace;border:1px solid #ccc;padding:8px;margin-top:8px;background:#f4f8ff;color:#123'>Loading Wi-Fi status...</div>"
     "<h4>API Endpoints</h4>"
     "<div style='background:#fff;border:1px solid #ccc;padding:12px;border-radius:4px;font-family:monospace;font-size:12px;line-height:1.6;color:#222'>"
     "<strong>GET /</strong> - This page<br>"
@@ -309,12 +324,18 @@ static void handleRoot() {
     "if(!ssid){show('Missing SSID');return;}"
     "const url='/provision?ssid='+encodeURIComponent(ssid)+'&pass='+encodeURIComponent(pass);"
     "try{const r=await fetch(url,{cache:'no-store'});const t=await r.text();show(t);}catch(e){show('ERR '+e);}}"
-    "let statusPolling=true;"
-    "function startStream(){const img=document.getElementById('mjpeg');img.src='/camera/stream';statusPolling=true;}"
-    "function stopStream(){const img=document.getElementById('mjpeg');img.removeAttribute('src');img.src='';statusPolling=false;}"
+    "const streamHostPort=window.location.hostname+':81';"
+    "const streamUrl=window.location.protocol+'//'+streamHostPort+'/camera/stream';"
+    "let statusPolling=false;"
+    "let statusTimer=null;"
+    "function updateStatusToggleText(){const btn=document.getElementById('statusToggle');if(btn){btn.textContent=statusPolling?'Stop Status Updates':'Start Status Updates';}}"
+    "function setStatusPolling(enabled){statusPolling=!!enabled;updateStatusToggleText();if(statusPolling){if(!statusTimer){pollStatus();}}else if(statusTimer){clearTimeout(statusTimer);statusTimer=null;}}"
+    "function toggleStatusPolling(){setStatusPolling(!statusPolling);}"
+"function startStream(){const img=document.getElementById('mjpeg');img.src=streamUrl+'?t='+Date.now();setStatusPolling(true);}"
+"function stopStream(){const img=document.getElementById('mjpeg');img.removeAttribute('src');img.src='';setStatusPolling(false);}"
     "async function pollStatus(){"
+    "  if(!statusPolling){statusTimer=null;return;}"
     "  try{"
-    "    if(!statusPolling){setTimeout(pollStatus,2000);return;}"
     "    const res=await fetch('/status',{cache:'no-store'});"
     "    const data=await res.json();"
     "    const info=document.getElementById('detectionInfo');"
@@ -324,69 +345,88 @@ static void handleRoot() {
     "    }else{"
     "      info.textContent='No detection';"
     "    }"
+    "    const wifiBox=document.getElementById('wifiStatus');"
+    "    if(wifiBox && data && data.wifi){"
+    "      const ap=data.wifi.ap||{};"
+    "      const sta=data.wifi.sta||{};"
+    "      const apLine=`AP: ${ap.ssid||'n/a'} (${ap.ip||'-'})`;"
+    "      const staLine=sta.connected?`STA: connected (${sta.ip||'-'})`:'STA: not connected';"
+    "      wifiBox.textContent=apLine+'\\n'+staLine;"
+    "    }"
     "  }catch(e){"
     "    document.getElementById('detectionInfo').textContent='Waiting for device...';"
     "  }finally{"
-    "    setTimeout(pollStatus,2000);"
+    "    if(statusPolling){statusTimer=setTimeout(pollStatus,2000);}else{statusTimer=null;}"
     "  }"
     "}"
-    "pollStatus();"
     "let camSettings={brightness:2,contrast:1,saturation:1,ae_level:2,aec_value:600,stream_delay_ms:1};"
     "async function loadCameraSettings(){try{const r=await fetch('/camera/settings',{cache:'no-store'});const d=await r.json();if(d.ok){camSettings=d;document.getElementById('brightness').value=d.brightness||2;document.getElementById('brightnessVal').textContent=d.brightness||2;document.getElementById('contrast').value=d.contrast||1;document.getElementById('contrastVal').textContent=d.contrast||1;document.getElementById('saturation').value=d.saturation||1;document.getElementById('saturationVal').textContent=d.saturation||1;document.getElementById('aeLevel').value=d.ae_level||2;document.getElementById('aeLevelVal').textContent=d.ae_level||2;document.getElementById('aecValue').value=d.aec_value||600;document.getElementById('aecValueVal').textContent=d.aec_value||600;document.getElementById('delay').value=d.stream_delay_ms||1;document.getElementById('delayVal').textContent=d.stream_delay_ms||1;show('Settings loaded');}}catch(e){show('ERR loading settings: '+e);}}"
     "async function updateCameraSetting(key,val){camSettings[key]=parseInt(val);try{const r=await fetch('/camera/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(camSettings),cache:'no-store'});if(r.ok){show(key+' updated');}else{show('Failed to update '+key);}}catch(e){show('ERR updating '+key+': '+e);}}"
     "function updateBrightness(v){document.getElementById('brightnessVal').textContent=v;updateCameraSetting('brightness',v);}"
     "function updateContrast(v){document.getElementById('contrastVal').textContent=v;updateCameraSetting('contrast',v);}"
     "function updateSaturation(v){document.getElementById('saturationVal').textContent=v;updateCameraSetting('saturation',v);}"
-    "function updateAeLevel(v){document.getElementById('aeLevelVal').textContent=v;updateCameraSetting('ae_level',v);}"
-    "function updateAecValue(v){document.getElementById('aecValueVal').textContent=v;updateCameraSetting('aec_value',v);}"
-    "function updateDelay(v){document.getElementById('delayVal').textContent=v;updateCameraSetting('stream_delay_ms',v);}"
+"function updateAeLevel(v){document.getElementById('aeLevelVal').textContent=v;updateCameraSetting('ae_level',v);}"
+"function previewAecValue(v){document.getElementById('aecValueVal').textContent=v;}"
+"function commitAecValue(v){previewAecValue(v);updateCameraSetting('aec_value',v);}"
+"function updateDelay(v){document.getElementById('delayVal').textContent=v;updateCameraSetting('stream_delay_ms',v);}"
     "</script>"
     "</body></html>";
   httpServer.send(200, "text/html", html);
 }
 
 static void handleStatus() {
-  String json = String("{\"camera\":") + (cameraInitialized?"true":"false") + 
-                ",\"dice\":{\"detected\":" + (lastDetection.detected?"true":"false") +
-                ",\"value\":" + lastDetection.value +
-                ",\"timestamp\":" + lastDetectionTimestamp +
-                ",\"confidence\":" + String(lastDetection.confidence, 3) +
-                ",\"x\":" + lastDetection.x +
-                ",\"y\":" + lastDetection.y +
-                ",\"w\":" + lastDetection.w +
-                ",\"h\":" + lastDetection.h + "}}";
+  JsonDocument doc;
+  doc["camera"] = cameraInitialized;
+  JsonObject dice = doc["dice"].to<JsonObject>();
+  dice["detected"] = lastDetection.detected;
+  dice["value"] = lastDetection.value;
+  dice["timestamp"] = lastDetectionTimestamp;
+  dice["confidence"] = lastDetection.confidence;
+  dice["x"] = lastDetection.x;
+  dice["y"] = lastDetection.y;
+  dice["w"] = lastDetection.w;
+  dice["h"] = lastDetection.h;
+
+  JsonObject wifi = doc["wifi"].to<JsonObject>();
+  JsonObject ap = wifi["ap"].to<JsonObject>();
+  ap["ssid"] = currentApSsid;
+  ap["ip"] = currentApIp.toString();
+  JsonObject sta = wifi["sta"].to<JsonObject>();
+  sta["connected"] = staConnected;
+  sta["ip"] = staConnected ? staIp.toString() : "";
+
+  String json;
+  serializeJson(doc, json);
   addNoCacheAndCors();
   httpServer.send(200, "application/json", json);
 }
 
 // --- MJPEG stream (/camera/stream) ---
-static const char* kStreamContentType = "multipart/x-mixed-replace;boundary=frame";
-static const char* kStreamBoundary = "--frame\r\n";
-static const char* kStreamPartHeader = "Content-Type: image/jpeg\r\nContent-Length: ";
+static const char* kStreamBoundary = "--frame";
 
-static void handleCameraStream() {
-  WiFiClient client = httpServer.client();
-  // Manually send HTTP headers to avoid chunked encoding issues
-  client.print("HTTP/1.1 200 OK\r\n");
-  client.print("Content-Type: "); client.print(kStreamContentType); client.print("\r\n");
-  client.print("Cache-Control: no-cache\r\n");
-  client.print("Connection: close\r\n\r\n");
-  // Write an initial boundary
-  client.write((const uint8_t*)kStreamBoundary, strlen(kStreamBoundary));
+static esp_err_t streamHttpdHandler(httpd_req_t* req) {
+  if (!cameraInitialized) {
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Camera not initialized");
+    return ESP_FAIL;
+  }
+  httpd_resp_set_type(req, "multipart/x-mixed-replace; boundary=frame");
+  httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
 
-  while (client.connected()) {
+  while (true) {
     camera_fb_t* fb = esp_camera_fb_get();
     if (!fb) {
-      break;
+      return ESP_FAIL;
     }
 
-    // Convert to RGB, run detection, draw overlay, then encode to JPEG
-    size_t rgbBytes = (size_t)fb->width * (size_t)fb->height * 3;
-    uint8_t* rgb = (uint8_t*)malloc(rgbBytes);
+    uint8_t* rgb = nullptr;
     uint8_t* outJpg = nullptr;
     size_t outLen = 0;
-    bool ok = false;
+    const uint8_t* payload = fb->buf;
+    size_t payloadLen = fb->len;
     DiceDetection det = {false, 0, 0, 0, 0, 0, 0.0f};
+
+    size_t rgbBytes = (size_t)fb->width * (size_t)fb->height * 3;
+    rgb = (uint8_t*)malloc(rgbBytes);
     if (rgb && fmt2rgb888(fb->buf, fb->len, fb->format, rgb)) {
       if (kOverlayEnabled) {
         detectDiceFromRGB(rgb, fb->width, fb->height, det);
@@ -400,33 +440,38 @@ static void handleCameraStream() {
         lastDetection = det;
         lastDetectionTimestamp = millis();
       }
-      if (fmt2jpg(rgb, fb->width*fb->height*3, fb->width, fb->height, PIXFORMAT_RGB888, 80, &outJpg, &outLen)) {
-        ok = true;
+      if (fmt2jpg(rgb, fb->width * fb->height * 3, fb->width, fb->height, PIXFORMAT_RGB888, 80, &outJpg, &outLen)) {
+        payload = outJpg;
+        payloadLen = outLen;
       }
     }
 
-    // Write headers
-    client.write((const uint8_t*)kStreamPartHeader, strlen(kStreamPartHeader));
-    char lenStr[24];
-    const uint8_t* payload = ok ? outJpg : fb->buf;
-    const size_t payloadLen = ok ? outLen : fb->len;
-    snprintf(lenStr, sizeof(lenStr), "%u\r\n\r\n", (unsigned)payloadLen);
-    client.write((const uint8_t*)lenStr, strlen(lenStr));
-
-    // Write JPEG payload
-    client.write(payload, payloadLen);
-    client.write((const uint8_t*)"\r\n", 2);
+    char partHeader[128];
+    int headerLen = snprintf(partHeader, sizeof(partHeader),
+                             "%s\r\nContent-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n",
+                             kStreamBoundary, (unsigned)payloadLen);
+    if (httpd_resp_send_chunk(req, partHeader, headerLen) != ESP_OK ||
+        httpd_resp_send_chunk(req, (const char*)payload, payloadLen) != ESP_OK ||
+        httpd_resp_send_chunk(req, "\r\n", 2) != ESP_OK) {
+      if (rgb) free(rgb);
+      if (outJpg) free(outJpg);
+      esp_camera_fb_return(fb);
+      break;
+    }
 
     esp_camera_fb_return(fb);
     if (rgb) free(rgb);
     if (outJpg) free(outJpg);
 
-    // Configurable delay to control latency
-    delay(streamDelayMs);
-
-    // Next boundary for the following frame
-    client.write((const uint8_t*)kStreamBoundary, strlen(kStreamBoundary));
+    if (streamDelayMs > 0) {
+      vTaskDelay(streamDelayMs / portTICK_PERIOD_MS);
+    } else {
+      taskYIELD();
+    }
   }
+
+  httpd_resp_send_chunk(req, nullptr, 0);
+  return ESP_OK;
 }
 
 static void handleDiceCapture() {
@@ -540,7 +585,12 @@ static void handleProvision() {
     if (connected) {
       WiFi.mode(WIFI_STA);
       Serial.println("AP disabled after successful STA connection");
+      staConnected = true;
+      staIp = WiFi.localIP();
     }
+  }
+  if (!connected) {
+    staConnected = false;
   }
   String json = String("{\"ok\":") + (saved?"true":"false") + 
                 ",\"connected\":" + (connected?"true":"false") + 
@@ -694,6 +744,26 @@ static void handleCameraSettings() {
   httpServer.send(405, "application/json", "{\"ok\":false,\"error\":\"method not allowed\"}");
 }
 
+static void startStreamServer() {
+  httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+  config.server_port = 81;
+  config.ctrl_port = 32817;
+  config.max_resp_headers = 16;
+  config.lru_purge_enable = true;
+  if (httpd_start(&streamHttpd, &config) == ESP_OK) {
+    httpd_uri_t streamUri = {
+      .uri = "/camera/stream",
+      .method = HTTP_GET,
+      .handler = streamHttpdHandler,
+      .user_ctx = nullptr
+    };
+    httpd_register_uri_handler(streamHttpd, &streamUri);
+    Serial.println("Stream server started on port 81");
+  } else {
+    Serial.println("Failed to start stream server");
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   delay(50);
@@ -723,6 +793,8 @@ void setup() {
   bool apOk = WiFi.softAP(apSsid.c_str(), apPassword);
   delay(100);
   IPAddress apIp = WiFi.softAPIP();
+  currentApSsid = apSsid;
+  currentApIp = apIp;
   Serial.print("AP SSID: "); Serial.println(apSsid);
   Serial.print("AP PASS: "); Serial.println(apPassword);
   Serial.print("AP IP:   "); Serial.println(apIp);
@@ -730,6 +802,8 @@ void setup() {
     Serial.println("AP start failed; retrying once...");
     WiFi.mode(WIFI_OFF); delay(100); WiFi.mode(WIFI_AP_STA);
     apOk = WiFi.softAP(apSsid.c_str(), apPassword);
+    apIp = WiFi.softAPIP();
+    currentApIp = apIp;
     Serial.println(apOk ? "AP started on retry" : "AP failed again");
   }
 
@@ -748,7 +822,6 @@ void setup() {
   httpServer.on("/dice/capture", HTTP_OPTIONS, handleOptions);
   httpServer.on("/dice/status", handleDiceStatus);
   httpServer.on("/dice/status", HTTP_OPTIONS, handleOptions);
-  httpServer.on("/camera/stream", handleCameraStream);
   httpServer.on("/external/detection", HTTP_POST, handleExternalDetection);
   httpServer.on("/external/detection", HTTP_OPTIONS, handleOptions);
   httpServer.on("/provision", handleProvision);
@@ -766,6 +839,10 @@ void setup() {
   });
   httpServer.begin();
   Serial.println("HTTP server started on port 80");
+
+  if (cameraInitialized) {
+    startStreamServer();
+  }
 }
 
 void loop() {
