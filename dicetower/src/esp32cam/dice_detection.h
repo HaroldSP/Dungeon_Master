@@ -11,10 +11,6 @@ struct DiceDetection {
   float confidence;
 };
 
-extern const uint8_t kDigitFont5x7[10][7];
-
-// Detect dice pips and digits from an RGB888 frame.
-// rgb: width*height*3 buffer (BGR or RGB is fine if you pass channels in order used).
-// Returns true if a plausible face (pips or digit) was found.
+// Placeholder detection hook. Returns false until the ML model is integrated.
 bool detectDiceFromRGB(const uint8_t* rgb, int width, int height, DiceDetection& out);
 
