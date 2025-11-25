@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WebServer.h>
+#include <HTTPClient.h>
 #include <LittleFS.h>
 #include <ArduinoJson.h>
 #include <algorithm>
@@ -47,6 +48,9 @@ static httpd_handle_t streamHttpd = nullptr;
 
 // Camera settings (runtime adjustable)
 static int streamDelayMs = 1;  // Latency control
+
+// External detection server (optional - set via /detection/server endpoint)
+static String externalDetectionServer = "";  // e.g., "http://192.168.1.100:5000/detect"
 
 static inline int clampCoord(int v, int lo, int hi) {
   if (v < lo) return lo;
@@ -490,12 +494,18 @@ static void handleDiceCapture() {
 
   DiceDetection detection = {false, 0, 0, 0, 0, 0, 0.0f};
   if (fb->format == PIXFORMAT_JPEG) {
-    size_t rgbBytes = (size_t)fb->width * (size_t)fb->height * 3;
-    uint8_t* rgb = (uint8_t*)malloc(rgbBytes);
-    if (rgb && fmt2rgb888(fb->buf, fb->len, fb->format, rgb)) {
-      detectDiceFromRGB(rgb, fb->width, fb->height, detection);
+    // Try external server first if configured
+    if (externalDetectionServer.length() > 0 && WiFi.status() == WL_CONNECTED) {
+      detectDiceFromJPEG(fb->buf, fb->len, externalDetectionServer, detection);
+    } else {
+      // Fallback to local detection (placeholder for now)
+      size_t rgbBytes = (size_t)fb->width * (size_t)fb->height * 3;
+      uint8_t* rgb = (uint8_t*)malloc(rgbBytes);
+      if (rgb && fmt2rgb888(fb->buf, fb->len, fb->format, rgb)) {
+        detectDiceFromRGB(rgb, fb->width, fb->height, detection);
+      }
+      if (rgb) free(rgb);
     }
-    if (rgb) free(rgb);
   }
 
   esp_camera_fb_return(fb);
@@ -744,6 +754,67 @@ static void handleCameraSettings() {
   httpServer.send(405, "application/json", "{\"ok\":false,\"error\":\"method not allowed\"}");
 }
 
+static void handleDetectionServer() {
+  if (httpServer.method() == HTTP_OPTIONS) {
+    handleOptions();
+    return;
+  }
+  
+  if (httpServer.method() == HTTP_GET) {
+    JsonDocument doc;
+    doc["ok"] = true;
+    doc["server_url"] = externalDetectionServer;
+    doc["enabled"] = (externalDetectionServer.length() > 0);
+    
+    String json;
+    serializeJson(doc, json);
+    addNoCacheAndCors();
+    httpServer.send(200, "application/json", json);
+    return;
+  }
+  
+  if (httpServer.method() == HTTP_POST) {
+    String body = httpServer.arg("plain");
+    if (!body.length()) {
+      addNoCacheAndCors();
+      httpServer.send(400, "application/json", "{\"ok\":false,\"error\":\"empty body\"}");
+      return;
+    }
+    
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, body);
+    if (err) {
+      addNoCacheAndCors();
+      httpServer.send(400, "application/json", "{\"ok\":false,\"error\":\"invalid json\"}");
+      return;
+    }
+    
+    if (doc["server_url"].is<String>()) {
+      externalDetectionServer = doc["server_url"].as<String>();
+      // Save to LittleFS for persistence
+      const char* serverPath = "/detection_server.txt";
+      File f = LittleFS.open(serverPath, "w");
+      if (f) {
+        f.print(externalDetectionServer);
+        f.close();
+      }
+    } else if (doc["enabled"].is<bool>() && !doc["enabled"].as<bool>()) {
+      externalDetectionServer = "";
+      const char* serverPath = "/detection_server.txt";
+      if (LittleFS.exists(serverPath)) {
+        LittleFS.remove(serverPath);
+      }
+    }
+    
+    addNoCacheAndCors();
+    httpServer.send(200, "application/json", "{\"ok\":true}");
+    return;
+  }
+  
+  addNoCacheAndCors();
+  httpServer.send(405, "application/json", "{\"ok\":false,\"error\":\"method not allowed\"}");
+}
+
 static void startStreamServer() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.server_port = 81;
@@ -775,6 +846,18 @@ void setup() {
     LittleFS.format();
     if (!LittleFS.begin(true)) {
       Serial.println("LittleFS mount failed after format");
+    }
+  }
+
+  // Load saved detection server URL
+  const char* serverPath = "/detection_server.txt";
+  if (LittleFS.exists(serverPath)) {
+    File f = LittleFS.open(serverPath, "r");
+    if (f) {
+      externalDetectionServer = f.readString();
+      f.close();
+      Serial.print("Loaded detection server: ");
+      Serial.println(externalDetectionServer);
     }
   }
 
@@ -833,6 +916,9 @@ void setup() {
   httpServer.on("/camera/settings", HTTP_GET, handleCameraSettings);
   httpServer.on("/camera/settings", HTTP_POST, handleCameraSettings);
   httpServer.on("/camera/settings", HTTP_OPTIONS, handleOptions);
+  httpServer.on("/detection/server", HTTP_GET, handleDetectionServer);
+  httpServer.on("/detection/server", HTTP_POST, handleDetectionServer);
+  httpServer.on("/detection/server", HTTP_OPTIONS, handleOptions);
   httpServer.onNotFound([](){
     addNoCacheAndCors();
     httpServer.send(404, "text/plain", "Not Found");
