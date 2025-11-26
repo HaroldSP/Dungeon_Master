@@ -28,7 +28,7 @@ bool detectDiceFromJPEG(const uint8_t* jpeg, size_t jpegLen, const String& serve
   http.addHeader("Content-Type", "image/jpeg");
   http.setTimeout(5000);  // 5 second timeout
 
-  int httpCode = http.POST(jpeg, jpegLen);
+  int httpCode = http.POST(const_cast<uint8_t*>(jpeg), jpegLen);
   
   bool success = false;
   if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED) {

@@ -26,6 +26,13 @@ import os
 app = Flask(__name__)
 CORS(app)  # Allow ESP32 to call this from any origin
 
+# Optional ChatGPT integration is kept in a separate module so you can
+# enable/disable or tweak prompts without touching this main server.
+try:
+    from gpt_dice_integration import detect_with_chatgpt
+except Exception:
+    detect_with_chatgpt = None
+
 # Load trained model (based on reference_repo_1 approach)
 model = None
 model_loaded = False
@@ -135,6 +142,11 @@ def detect_dice_model(image_bytes):
     try:
         # Convert bytes to PIL Image
         img = Image.open(io.BytesIO(image_bytes))
+        # Debug: log incoming resolution to verify ESP32 camera settings
+        try:
+            print("Incoming image size:", img.size)
+        except Exception:
+            pass
         
         # Convert to RGB if needed
         if img.mode != 'RGB':
@@ -187,17 +199,11 @@ def detect():
     Main detection endpoint.
     Receives JPEG image from ESP32-CAM and returns detection result.
     """
-    if 'image' not in request.files and request.content_type != 'image/jpeg':
-        # Try to read raw JPEG from body
-        image_bytes = request.data
-    else:
-        # Read from form data
-        image_file = request.files.get('image')
-        if not image_file:
-            return jsonify({"error": "No image provided"}), 400
-        image_bytes = image_file.read()
-    
-    if len(image_bytes) == 0:
+    # ESP32-CAM sends a raw JPEG buffer with Content-Type: image/jpeg
+    # We keep this simple and always read raw bytes; if someone wants to
+    # send multipart/form-data they still can (request.data will contain it).
+    image_bytes = request.data or b""
+    if not image_bytes:
         return jsonify({"error": "Empty image"}), 400
     
     try:
@@ -229,6 +235,46 @@ def detect():
 def health():
     """Health check endpoint."""
     return jsonify({"status": "ok"}), 200
+
+@app.route('/gpt_detect', methods=['POST'])
+def gpt_detect():
+    """
+    Alternate detection endpoint that uses ChatGPT (OpenAI) vision.
+    ESP32-CAM should POST a JPEG image in the request body.
+    """
+    if detect_with_chatgpt is None:
+        return jsonify({
+            "detected": False,
+            "value": 0,
+            "confidence": 0.0,
+            "x": 0,
+            "y": 0,
+            "w": 0,
+            "h": 0,
+            "error": "gpt_dice_integration not available"
+        }), 500
+
+    image_bytes = request.data or b""
+    if not image_bytes:
+        print("GPT DETECT: empty body from", request.remote_addr)
+        return jsonify({"error": "Empty image"}), 400
+
+    # Debug logging so you can see what is being sent to ChatGPT
+    print(
+        f"GPT DETECT: from {request.remote_addr}, "
+        f"content_type={request.content_type}, "
+        f"bytes={len(image_bytes)}"
+    )
+
+    result = detect_with_chatgpt(image_bytes)
+
+    # Log model output for inspection
+    try:
+        print("GPT DETECT result:", result)
+    except Exception:
+        pass
+
+    return jsonify(result), 200
 
 if __name__ == '__main__':
     print("Starting Dice Detection Server...")

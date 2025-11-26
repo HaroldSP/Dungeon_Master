@@ -7,3 +7,6 @@
 # Reference repositories (external dependencies - re-clone on other PCs)
 reference_repo_1/
 reference_repo_2/
+
+# Local secrets
+.env

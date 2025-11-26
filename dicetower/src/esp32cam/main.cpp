@@ -31,6 +31,23 @@
 
 static constexpr bool kOverlayEnabled = true;
 
+// 0 = QVGA 320x240, 1 = VGA 640x480 (runtime switchable via UI)
+static int frameSizeMode = 0;
+
+// Simple 5x7 bitmap font for drawing numeric overlays
+static const uint8_t kDigitFont5x7[10][7] = {
+  {0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110}, // 0
+  {0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110}, // 1
+  {0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111}, // 2
+  {0b01110, 0b10001, 0b00001, 0b00110, 0b00001, 0b10001, 0b01110}, // 3
+  {0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010}, // 4
+  {0b11111, 0b10000, 0b11110, 0b00001, 0b00001, 0b10001, 0b01110}, // 5
+  {0b00111, 0b01000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110}, // 6
+  {0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000}, // 7
+  {0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110}, // 8
+  {0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00010, 0b11100}  // 9
+};
+
 static WebServer httpServer(80);
 static bool cameraInitialized = false;
 
@@ -223,8 +240,8 @@ static bool initCamera() {
   config.xclk_freq_hz = 20000000;
   config.pixel_format = PIXFORMAT_JPEG;
   
-  // Lower resolution for faster processing and less memory usage
-  if(psramFound()){
+  // Default resolution: QVGA for speed; can be switched to VGA at runtime
+  if (psramFound()) {
     config.frame_size = FRAMESIZE_QVGA; // 320x240
     config.jpeg_quality = 12;
     config.fb_count = 2;
@@ -287,10 +304,24 @@ static void handleRoot() {
       "<button onclick=stopStream() title='Stops the video stream'>Stop Stream</button>"
     "</div>"
     "<h4>Dice Recognition</h4>"
-    "<button onclick=doGet('/dice/capture') title='GET /dice/capture - Captures a frame and runs dice detection'>Capture & Recognize Dice</button>"
-    "<button onclick=doGet('/dice/status') title='GET /dice/status - Returns last detection result'>Get Last Result</button>"
+    "<div style='display:flex;flex-wrap:wrap;gap:8px'>"
+      "<button onclick=doGet('/dice/capture') title='GET /dice/capture - Captures a frame and runs local/ML detection'>Capture & Recognize Dice</button>"
+      "<button onclick=doGet('/dice/capture_gpt') title='GET /dice/capture_gpt - Captures a frame and asks ChatGPT to guess the value'>ChatGPT Guess</button>"
+      "<button onclick=doGet('/dice/status') title='GET /dice/status - Returns last detection result'>Get Last Result</button>"
+    "</div>"
     "<div id='detectionInfo' style='margin-top:10px;font-family:monospace;color:#0cf;'>Waiting for detections...</div>"
     "<button id='statusToggle' onclick=toggleStatusPolling() style='margin-top:8px'>Start Status Updates</button>"
+    "<h4>External Detection Server</h4>"
+    "<p style='line-height:1.4'>1) Run <code>dice_detection_server.py</code> on your PC.<br>"
+    "2) Enter the full URL (e.g. <code>http://192.168.0.102:5000/detect</code>) below.<br>"
+    "3) Click Save, then use Capture to send frames through the server.</p>"
+    "<input id='serverUrl' placeholder='http://192.168.0.102:5000/detect' style='width:100%;padding:8px;margin-bottom:6px'/>"
+    "<div style='display:flex;flex-wrap:wrap;gap:8px;margin-bottom:6px'>"
+      "<button onclick=saveDetectionServer()>Save Server URL</button>"
+      "<button onclick=clearDetectionServer() style='background:#555;color:#fff'>Disable External Detection</button>"
+      "<button onclick=loadDetectionServer()>Refresh Status</button>"
+    "</div>"
+    "<div id='serverStatus' style='font-family:monospace;background:#111;color:#0ff;padding:8px;border-radius:4px'>Detection server not configured.</div>"
     "<h4>Camera Settings</h4>"
     "<div style='margin-bottom:8px'><label>Brightness (overall lightness): <span id='brightnessVal'>2</span></label><br><input type='range' id='brightness' min='-2' max='2' step='1' value='2' oninput='updateBrightness(this.value)'/><small>Negative = darker, positive = brighter (5 steps)</small></div>"
     "<div style='margin-bottom:8px'><label>Contrast (difference between dark/light): <span id='contrastVal'>1</span></label><br><input type='range' id='contrast' min='-2' max='2' step='1' value='1' oninput='updateContrast(this.value)'/><small>Lower values flatten the image, higher values increase punch</small></div>"
@@ -298,6 +329,13 @@ static void handleRoot() {
     "<div style='margin-bottom:8px'><label>Exposure Level (auto bias): <span id='aeLevelVal'>2</span></label><br><input type='range' id='aeLevel' min='-2' max='2' step='1' value='2' oninput='updateAeLevel(this.value)'/><small>Tells auto exposure to favor darker (-) or brighter (+) scenes</small></div>"
     "<div style='margin-bottom:8px'><label>Exposure Value (manual shutter): <span id='aecValueVal'>600</span></label><br><input type='range' id='aecValue' min='0' max='1200' step='1' value='600' oninput='previewAecValue(this.value)' onchange='commitAecValue(this.value)'/><small>0 = darkest, 1200 = brightest (use when auto exposure struggles)</small></div>"
     "<div style='margin-bottom:8px'><label>Stream Latency (ms): <span id='delayVal'>1</span></label><br><input type='range' id='delay' min='0' max='100' step='1' value='1' oninput='updateDelay(this.value)'/><small>Increase if Wi-Fi is noisy; 0 = lowest latency</small></div>"
+    "<div style='margin-bottom:8px'><label>Resolution: <span id='resLabel'>320x240</span></label><br>"
+      "<div style='display:flex;gap:8px;margin-top:4px'>"
+        "<button onclick='setResolution(0)' title='Use 320x240 (faster, less detail)'>320x240</button>"
+        "<button onclick='setResolution(1)' title='Use 640x480 (slower, more detail)'>640x480</button>"
+      "</div>"
+      "<small>Higher resolution gives sharper input for the model but uses more memory and bandwidth.</small>"
+    "</div>"
     "<button onclick=loadCameraSettings()>Load Current Settings</button>"
     "<h4>Provision Wi‑Fi</h4>"
     "<input id='ssid' placeholder='SSID'/>"
@@ -337,6 +375,9 @@ static void handleRoot() {
     "function toggleStatusPolling(){setStatusPolling(!statusPolling);}"
 "function startStream(){const img=document.getElementById('mjpeg');img.src=streamUrl+'?t='+Date.now();setStatusPolling(true);}"
 "function stopStream(){const img=document.getElementById('mjpeg');img.removeAttribute('src');img.src='';setStatusPolling(false);}"
+    "async function loadDetectionServer(){try{const res=await fetch('/detection/server',{cache:'no-store'});if(!res.ok)throw new Error('HTTP '+res.status);const data=await res.json();const input=document.getElementById('serverUrl');if(input && data.server_url){input.value=data.server_url;}const box=document.getElementById('serverStatus');if(box){box.textContent=(data.enabled&&data.server_url)?'Using '+data.server_url:'Detection server disabled.';}}catch(err){const box=document.getElementById('serverStatus');if(box){box.textContent='Unable to load detection server info.';}show('ERR loading server: '+err);}}"
+    "async function saveDetectionServer(){const input=document.getElementById('serverUrl');const url=input?input.value.trim():'';if(!url){show('Enter server URL first');return;}try{const res=await fetch('/detection/server',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({server_url:url}),cache:'no-store'});if(!res.ok){throw new Error('HTTP '+res.status);}show('Detection server saved');loadDetectionServer();}catch(err){show('ERR saving detection server: '+err);}}"
+    "async function clearDetectionServer(){try{const res=await fetch('/detection/server',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:false}),cache:'no-store'});if(!res.ok){throw new Error('HTTP '+res.status);}show('Detection server disabled');const input=document.getElementById('serverUrl');if(input){input.value='';}loadDetectionServer();}catch(err){show('ERR disabling detection server: '+err);}}"
     "async function pollStatus(){"
     "  if(!statusPolling){statusTimer=null;return;}"
     "  try{"
@@ -364,7 +405,7 @@ static void handleRoot() {
     "  }"
     "}"
     "let camSettings={brightness:2,contrast:1,saturation:1,ae_level:2,aec_value:600,stream_delay_ms:1};"
-    "async function loadCameraSettings(){try{const r=await fetch('/camera/settings',{cache:'no-store'});const d=await r.json();if(d.ok){camSettings=d;document.getElementById('brightness').value=d.brightness||2;document.getElementById('brightnessVal').textContent=d.brightness||2;document.getElementById('contrast').value=d.contrast||1;document.getElementById('contrastVal').textContent=d.contrast||1;document.getElementById('saturation').value=d.saturation||1;document.getElementById('saturationVal').textContent=d.saturation||1;document.getElementById('aeLevel').value=d.ae_level||2;document.getElementById('aeLevelVal').textContent=d.ae_level||2;document.getElementById('aecValue').value=d.aec_value||600;document.getElementById('aecValueVal').textContent=d.aec_value||600;document.getElementById('delay').value=d.stream_delay_ms||1;document.getElementById('delayVal').textContent=d.stream_delay_ms||1;show('Settings loaded');}}catch(e){show('ERR loading settings: '+e);}}"
+    "async function loadCameraSettings(){try{const r=await fetch('/camera/settings',{cache:'no-store'});const d=await r.json();if(d.ok){camSettings=d;document.getElementById('brightness').value=d.brightness||2;document.getElementById('brightnessVal').textContent=d.brightness||2;document.getElementById('contrast').value=d.contrast||1;document.getElementById('contrastVal').textContent=d.contrast||1;document.getElementById('saturation').value=d.saturation||1;document.getElementById('saturationVal').textContent=d.saturation||1;document.getElementById('aeLevel').value=d.ae_level||2;document.getElementById('aeLevelVal').textContent=d.ae_level||2;document.getElementById('aecValue').value=d.aec_value||600;document.getElementById('aecValueVal').textContent=d.aec_value||600;document.getElementById('delay').value=d.stream_delay_ms||1;document.getElementById('delayVal').textContent=d.stream_delay_ms||1;const mode=(typeof d.frame_size_mode==='number')?d.frame_size_mode:0;document.getElementById('resLabel').textContent=mode? '640x480':'320x240';show('Settings loaded');}}catch(e){show('ERR loading settings: '+e);}}"
     "async function updateCameraSetting(key,val){camSettings[key]=parseInt(val);try{const r=await fetch('/camera/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(camSettings),cache:'no-store'});if(r.ok){show(key+' updated');}else{show('Failed to update '+key);}}catch(e){show('ERR updating '+key+': '+e);}}"
     "function updateBrightness(v){document.getElementById('brightnessVal').textContent=v;updateCameraSetting('brightness',v);}"
     "function updateContrast(v){document.getElementById('contrastVal').textContent=v;updateCameraSetting('contrast',v);}"
@@ -372,7 +413,9 @@ static void handleRoot() {
 "function updateAeLevel(v){document.getElementById('aeLevelVal').textContent=v;updateCameraSetting('ae_level',v);}"
 "function previewAecValue(v){document.getElementById('aecValueVal').textContent=v;}"
 "function commitAecValue(v){previewAecValue(v);updateCameraSetting('aec_value',v);}"
-"function updateDelay(v){document.getElementById('delayVal').textContent=v;updateCameraSetting('stream_delay_ms',v);}"
+    "function updateDelay(v){document.getElementById('delayVal').textContent=v;updateCameraSetting('stream_delay_ms',v);}"
+    "function setResolution(mode){mode=parseInt(mode);camSettings.frame_size_mode=mode;document.getElementById('resLabel').textContent=mode? '640x480':'320x240';updateCameraSetting('frame_size_mode',mode);}"
+    "document.addEventListener('DOMContentLoaded',()=>{loadDetectionServer();});"
     "</script>"
     "</body></html>";
   httpServer.send(200, "text/html", html);
@@ -506,6 +549,58 @@ static void handleDiceCapture() {
       }
       if (rgb) free(rgb);
     }
+  }
+
+  esp_camera_fb_return(fb);
+  lastDetection = detection;
+  lastDetectionTimestamp = millis();
+
+  String json = String("{\"ok\":true,\"detected\":") + (detection.detected?"true":"false") +
+                ",\"value\":" + detection.value +
+                ",\"timestamp\":" + lastDetectionTimestamp +
+                ",\"x\":" + detection.x +
+                ",\"y\":" + detection.y +
+                ",\"w\":" + detection.w +
+                ",\"h\":" + detection.h + "}";
+  
+  addNoCacheAndCors();
+  httpServer.send(200, "application/json", json);
+}
+
+// Capture frame and send to GPT-backed detector on the external server.
+// Uses the same externalDetectionServer URL but swaps `/detect` for `/gpt_detect`.
+static void handleDiceCaptureGpt() {
+  if (!cameraInitialized) {
+    addNoCacheAndCors();
+    httpServer.send(500, "application/json", "{\"ok\":false,\"error\":\"camera not initialized\"}");
+    return;
+  }
+
+  if (externalDetectionServer.length() == 0 || WiFi.status() != WL_CONNECTED) {
+    addNoCacheAndCors();
+    httpServer.send(500, "application/json", "{\"ok\":false,\"error\":\"detection server not configured or STA not connected\"}");
+    return;
+  }
+
+  // Build GPT endpoint URL from configured /detect URL
+  String gptUrl = externalDetectionServer;
+  int slash = gptUrl.lastIndexOf('/');
+  if (slash > 0) {
+    gptUrl = gptUrl.substring(0, slash) + "/gpt_detect";
+  } else {
+    gptUrl += "/gpt_detect";
+  }
+
+  camera_fb_t* fb = esp_camera_fb_get();
+  if (!fb) {
+    addNoCacheAndCors();
+    httpServer.send(500, "application/json", "{\"ok\":false,\"error\":\"camera capture failed\"}");
+    return;
+  }
+
+  DiceDetection detection = {false, 0, 0, 0, 0, 0, 0.0f};
+  if (fb->format == PIXFORMAT_JPEG) {
+    detectDiceFromJPEG(fb->buf, fb->len, gptUrl, detection);
   }
 
   esp_camera_fb_return(fb);
@@ -683,6 +778,7 @@ static void handleCameraSettings() {
     doc["agc_gain"] = 0;
     doc["gainceiling"] = 2;
     doc["stream_delay_ms"] = streamDelayMs;
+    doc["frame_size_mode"] = frameSizeMode;
     
     String json;
     serializeJson(doc, json);
@@ -743,6 +839,14 @@ static void handleCameraSettings() {
     if (doc["stream_delay_ms"].is<int>()) {
       int val = doc["stream_delay_ms"];
       streamDelayMs = clampi(val, 0, 100);
+    }
+    if (doc["frame_size_mode"].is<int>()) {
+      int val = clampi((int)doc["frame_size_mode"], 0, 1);
+      frameSizeMode = val;
+      sensor_t * sensor = esp_camera_sensor_get();
+      if (sensor) {
+        sensor->set_framesize(sensor, frameSizeMode ? FRAMESIZE_VGA : FRAMESIZE_QVGA);
+      }
     }
     
     addNoCacheAndCors();
@@ -903,6 +1007,8 @@ void setup() {
   httpServer.on("/status", HTTP_OPTIONS, handleOptions);
   httpServer.on("/dice/capture", handleDiceCapture);
   httpServer.on("/dice/capture", HTTP_OPTIONS, handleOptions);
+  httpServer.on("/dice/capture_gpt", handleDiceCaptureGpt);
+  httpServer.on("/dice/capture_gpt", HTTP_OPTIONS, handleOptions);
   httpServer.on("/dice/status", handleDiceStatus);
   httpServer.on("/dice/status", HTTP_OPTIONS, handleOptions);
   httpServer.on("/external/detection", HTTP_POST, handleExternalDetection);

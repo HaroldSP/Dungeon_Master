@@ -103,7 +103,8 @@ ESP32-CAM should POST JPEG images to: http://<this-server-ip>:5000/detect
 
 1. Connect to ESP32-CAM's AP or Wi-Fi
 2. Open `http://ESP32_IP/` in browser
-3. Use the web form to set detection server URL
+3. Scroll to **External Detection Server**
+4. Enter `http://YOUR_PC_IP:5000/detect` and click **Save Server URL**
 
 **Or configure via API:**
 
