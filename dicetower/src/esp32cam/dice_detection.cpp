@@ -4,6 +4,10 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 
+// Suppress deprecation warning for DynamicJsonDocument - we need fixed-size allocation
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+
 // Placeholder implementation. Detection will be reintroduced once the embedded
 // ML pipeline is ready.
 bool detectDiceFromRGB(const uint8_t* rgb, int width, int height, DiceDetection& out) {
@@ -35,7 +39,8 @@ bool detectDiceFromJPEG(const uint8_t* jpeg, size_t jpegLen, const String& serve
     String response = http.getString();
     
     // Parse JSON response: {"detected": true, "value": 15, "confidence": 0.95, "x": 100, "y": 50, "w": 80, "h": 80}
-    JsonDocument doc;
+    // Use DynamicJsonDocument with fixed size to avoid heap fragmentation
+    DynamicJsonDocument doc(256);
     DeserializationError err = deserializeJson(doc, response);
     if (!err) {
       out.detected = doc["detected"] | false;
@@ -47,10 +52,14 @@ bool detectDiceFromJPEG(const uint8_t* jpeg, size_t jpegLen, const String& serve
       out.h = doc["h"] | 0;
       success = out.detected;
     }
+  } else {
+    // Log error for debugging (optional, can be removed if Serial is not available)
+    // Serial.printf("HTTP error: %d\n", httpCode);
   }
   
   http.end();
   return success;
 }
+#pragma GCC diagnostic pop
 
 

@@ -11,6 +11,10 @@
 #include "esp_http_server.h"
 #include "dice_detection.h"
 
+// Suppress deprecation warning for DynamicJsonDocument - we need fixed-size allocation
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+
 // Camera pin definitions for ESP32-CAM (AI-Thinker)
 #define PWDN_GPIO_NUM     32
 #define RESET_GPIO_NUM    -1
@@ -422,7 +426,8 @@ static void handleRoot() {
 }
 
 static void handleStatus() {
-  JsonDocument doc;
+  // Use DynamicJsonDocument with fixed size to avoid heap fragmentation on ESP32
+  DynamicJsonDocument doc(512);
   doc["camera"] = cameraInitialized;
   JsonObject dice = doc["dice"].to<JsonObject>();
   dice["detected"] = lastDetection.detected;
@@ -1036,6 +1041,7 @@ void setup() {
     startStreamServer();
   }
 }
+#pragma GCC diagnostic pop
 
 void loop() {
   httpServer.handleClient();
