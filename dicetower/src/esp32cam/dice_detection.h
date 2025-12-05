@@ -9,6 +9,7 @@ struct DiceDetection {
   int w;
   int h;
   float confidence;
+  int second_most_likely;  // Second most likely value (for ChatGPT)
 };
 
 // Placeholder detection hook. Returns false until the ML model is integrated.

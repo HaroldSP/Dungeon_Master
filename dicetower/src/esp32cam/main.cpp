@@ -55,7 +55,7 @@ static const uint8_t kDigitFont5x7[10][7] = {
 static WebServer httpServer(80);
 static bool cameraInitialized = false;
 
-static DiceDetection lastDetection = {false, 0, 0, 0, 0, 0, 0.0f};
+static DiceDetection lastDetection = {false, 0, 0, 0, 0, 0, 0.0f, 0};
 static unsigned long lastDetectionTimestamp = 0;
 
 // Wi-Fi state tracking
@@ -127,8 +127,13 @@ static void drawDigitScaled(uint8_t* rgb, int w, int h, int x, int y, int digit,
 }
 
 static void drawValueLabel(uint8_t* rgb, int w, int h, int x, int y, int value, uint8_t rr, uint8_t gg, uint8_t bb, int scale) {
-  char buf[6];
-  snprintf(buf, sizeof(buf), "%d", value);
+  char buf[16];
+  if (value == -1) {
+    // Special case: draw "d20-" prefix
+    snprintf(buf, sizeof(buf), "d20-");
+  } else {
+    snprintf(buf, sizeof(buf), "%d", value);
+  }
   int len = (int)strlen(buf);
   int digitWidth = 5 * scale;
   int spacing = scale;
@@ -302,15 +307,23 @@ static void handleRoot() {
     "<h3>DiceTower ESP32-CAM</h3>"
     "<div id='msg' style='white-space:pre-wrap;font-family:monospace;background:#111;color:#0f0;padding:8px;min-height:2em'></div>"
     "<h4>Camera Stream</h4>"
-    "<img id='mjpeg' alt='Stream will appear here'/>"
-    "<div style='display:flex;gap:8px'>"
-      "<button onclick=startStream() title='GET /camera/stream - Starts MJPEG video stream'>Start Stream</button>"
-      "<button onclick=stopStream() title='Stops the video stream'>Stop Stream</button>"
+    "<div style='display:flex;gap:8px;align-items:flex-start'>"
+      "<div>"
+        "<img id='mjpeg' alt='Stream will appear here'/>"
+        "<div style='display:flex;gap:8px;margin-top:8px'>"
+          "<button onclick=startStream() title='GET /camera/stream - Starts MJPEG video stream'>Start Stream</button>"
+          "<button onclick=stopStream() title='Stops the video stream'>Stop Stream</button>"
+        "</div>"
+      "</div>"
+      "<div style='display:flex;flex-direction:column;gap:8px'>"
+        "<button id='mostLikelyBtn' style='min-width:80px;padding:12px;font-size:18px;font-weight:bold;background:#4CAF50;color:#fff' disabled>--</button>"
+        "<button id='secondLikelyBtn' style='min-width:80px;padding:12px;font-size:18px;font-weight:bold;background:#FF9800;color:#fff' disabled>--</button>"
+      "</div>"
     "</div>"
     "<h4>Dice Recognition</h4>"
     "<div style='display:flex;flex-wrap:wrap;gap:8px'>"
-      "<button onclick=doGet('/dice/capture') title='GET /dice/capture - Captures a frame and runs local/ML detection'>Capture & Recognize Dice</button>"
-      "<button onclick=doGet('/dice/capture_gpt') title='GET /dice/capture_gpt - Captures a frame and asks ChatGPT to guess the value'>ChatGPT Guess</button>"
+      "<button onclick='doGetAndUpdate(\"/dice/capture\")' title='GET /dice/capture - Captures a frame and runs local/ML detection'>Capture & Recognize Dice</button>"
+      "<button onclick='doGetAndUpdate(\"/dice/capture_gpt\")' title='GET /dice/capture_gpt - Captures a frame and asks ChatGPT to guess the value'>ChatGPT Guess</button>"
       "<button onclick=doGet('/dice/status') title='GET /dice/status - Returns last detection result'>Get Last Result</button>"
     "</div>"
     "<div id='detectionInfo' style='margin-top:10px;font-family:monospace;color:#0cf;'>Waiting for detections...</div>"
@@ -366,6 +379,8 @@ static void handleRoot() {
     "<script>"
     "function show(o){document.getElementById('msg').textContent=(typeof o==='string')?o:JSON.stringify(o,null,2);}"
     "async function doGet(path){try{const r=await fetch(path,{cache:'no-store'});const t=await r.text();show(t);}catch(e){show('ERR '+e);}}"
+    "async function doGetAndUpdate(path){try{const r=await fetch(path,{cache:'no-store'});const t=await r.text();show(t);try{const data=JSON.parse(t);updateDetectionButtons(data);}catch(e){}}catch(e){show('ERR '+e);}}"
+    "function updateDetectionButtons(data){const mostBtn=document.getElementById('mostLikelyBtn');const secondBtn=document.getElementById('secondLikelyBtn');const info=document.getElementById('detectionInfo');if(data && data.detected && data.value>0){if(mostBtn){mostBtn.textContent=data.value;mostBtn.disabled=false;}if(secondBtn && data.second_most_likely && data.second_most_likely>0){secondBtn.textContent=data.second_most_likely;secondBtn.disabled=false;}else if(secondBtn){secondBtn.textContent='--';secondBtn.disabled=true;}if(info){const conf=(data.confidence||0).toFixed(2);info.textContent=`Die=${data.value}  conf=${conf}`;}}else if(data && data.dice && data.dice.detected && data.dice.value>0){if(mostBtn){mostBtn.textContent=data.dice.value;mostBtn.disabled=false;}if(secondBtn && data.dice.second_most_likely && data.dice.second_most_likely>0){secondBtn.textContent=data.dice.second_most_likely;secondBtn.disabled=false;}else if(secondBtn){secondBtn.textContent='--';secondBtn.disabled=true;}if(info){const conf=(data.dice.confidence||0).toFixed(2);info.textContent=`Die=${data.dice.value}  conf=${conf}`;}}else{if(mostBtn){mostBtn.textContent='--';mostBtn.disabled=true;}if(secondBtn){secondBtn.textContent='--';secondBtn.disabled=true;}}}"
     "async function provision(){const ssid=document.getElementById('ssid').value;const pass=document.getElementById('pass').value;"
     "if(!ssid){show('Missing SSID');return;}"
     "const url='/provision?ssid='+encodeURIComponent(ssid)+'&pass='+encodeURIComponent(pass);"
@@ -388,12 +403,9 @@ static void handleRoot() {
     "    const res=await fetch('/status',{cache:'no-store'});"
     "    const data=await res.json();"
     "    const info=document.getElementById('detectionInfo');"
-    "    if(data && data.dice && data.dice.detected){"
-    "      const conf=(data.dice.confidence||0).toFixed(2);"
-    "      info.textContent=`Die=${data.dice.value}  conf=${conf}  device_ms=${data.dice.timestamp}`;"
-    "    }else{"
-    "      info.textContent='No detection';"
-    "    }"
+    "    const mostBtn=document.getElementById('mostLikelyBtn');"
+    "    const secondBtn=document.getElementById('secondLikelyBtn');"
+    "    updateDetectionButtons(data);"
     "    const wifiBox=document.getElementById('wifiStatus');"
     "    if(wifiBox && data && data.wifi){"
     "      const ap=data.wifi.ap||{};"
@@ -434,10 +446,7 @@ static void handleStatus() {
   dice["value"] = lastDetection.value;
   dice["timestamp"] = lastDetectionTimestamp;
   dice["confidence"] = lastDetection.confidence;
-  dice["x"] = lastDetection.x;
-  dice["y"] = lastDetection.y;
-  dice["w"] = lastDetection.w;
-  dice["h"] = lastDetection.h;
+  dice["second_most_likely"] = lastDetection.second_most_likely;
 
   JsonObject wifi = doc["wifi"].to<JsonObject>();
   JsonObject ap = wifi["ap"].to<JsonObject>();
@@ -475,23 +484,11 @@ static esp_err_t streamHttpdHandler(httpd_req_t* req) {
     size_t outLen = 0;
     const uint8_t* payload = fb->buf;
     size_t payloadLen = fb->len;
-    DiceDetection det = {false, 0, 0, 0, 0, 0, 0.0f};
 
     size_t rgbBytes = (size_t)fb->width * (size_t)fb->height * 3;
     rgb = (uint8_t*)malloc(rgbBytes);
     if (rgb && fmt2rgb888(fb->buf, fb->len, fb->format, rgb)) {
-      if (kOverlayEnabled) {
-        detectDiceFromRGB(rgb, fb->width, fb->height, det);
-        if (det.detected) {
-          drawRectRGB(rgb, fb->width, fb->height, det.x, det.y, det.w, det.h, 0, 255, 0);
-          int scale = 3;
-          int labelY = clampCoord(det.y - scale * 7 - 4, 0, fb->height - scale * 7);
-          int labelX = clampCoord(det.x + 4, 0, fb->width - 1);
-          drawValueLabel(rgb, fb->width, fb->height, labelX, labelY, det.value, 255, 255, 0, scale);
-        }
-        lastDetection = det;
-        lastDetectionTimestamp = millis();
-      }
+      // Box drawing removed - using frontend buttons instead
       if (fmt2jpg(rgb, fb->width * fb->height * 3, fb->width, fb->height, PIXFORMAT_RGB888, 80, &outJpg, &outLen)) {
         payload = outJpg;
         payloadLen = outLen;
@@ -540,7 +537,7 @@ static void handleDiceCapture() {
     return;
   }
 
-  DiceDetection detection = {false, 0, 0, 0, 0, 0, 0.0f};
+  DiceDetection detection = {false, 0, 0, 0, 0, 0, 0.0f, 0};
   if (fb->format == PIXFORMAT_JPEG) {
     // Try external server first if configured
     if (externalDetectionServer.length() > 0 && WiFi.status() == WL_CONNECTED) {
@@ -603,7 +600,7 @@ static void handleDiceCaptureGpt() {
     return;
   }
 
-  DiceDetection detection = {false, 0, 0, 0, 0, 0, 0.0f};
+  DiceDetection detection = {false, 0, 0, 0, 0, 0, 0.0f, 0};
   if (fb->format == PIXFORMAT_JPEG) {
     detectDiceFromJPEG(fb->buf, fb->len, gptUrl, detection);
   }
@@ -615,10 +612,7 @@ static void handleDiceCaptureGpt() {
   String json = String("{\"ok\":true,\"detected\":") + (detection.detected?"true":"false") +
                 ",\"value\":" + detection.value +
                 ",\"timestamp\":" + lastDetectionTimestamp +
-                ",\"x\":" + detection.x +
-                ",\"y\":" + detection.y +
-                ",\"w\":" + detection.w +
-                ",\"h\":" + detection.h + "}";
+                ",\"second_most_likely\":" + detection.second_most_likely + "}";
   
   addNoCacheAndCors();
   httpServer.send(200, "application/json", json);
@@ -629,10 +623,7 @@ static void handleDiceStatus() {
                 ",\"value\":" + lastDetection.value +
                 ",\"timestamp\":" + lastDetectionTimestamp +
                 ",\"confidence\":" + String(lastDetection.confidence, 3) +
-                ",\"x\":" + lastDetection.x +
-                ",\"y\":" + lastDetection.y +
-                ",\"w\":" + lastDetection.w +
-                ",\"h\":" + lastDetection.h + "}";
+                ",\"second_most_likely\":" + lastDetection.second_most_likely + "}";
   addNoCacheAndCors();
   httpServer.send(200, "application/json", json);
 }
@@ -666,10 +657,11 @@ static void handleExternalDetection() {
   incoming.detected = doc["detected"] | true;
   incoming.value = doc["value"] | incoming.value;
   incoming.confidence = doc["confidence"] | incoming.confidence;
-  incoming.x = doc["x"] | 0;
-  incoming.y = doc["y"] | 0;
-  incoming.w = doc["w"] | 0;
-  incoming.h = doc["h"] | 0;
+  incoming.x = 0;
+  incoming.y = 0;
+  incoming.w = 0;
+  incoming.h = 0;
+  incoming.second_most_likely = doc["second_most_likely"] | 0;
 
   lastDetection = incoming;
   lastDetectionTimestamp = millis();

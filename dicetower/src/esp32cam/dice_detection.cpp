@@ -18,6 +18,7 @@ bool detectDiceFromRGB(const uint8_t* rgb, int width, int height, DiceDetection&
   out.detected = false;
   out.value = 0;
   out.confidence = 0.0f;
+  out.second_most_likely = 0;
   return false;
 }
 
@@ -38,7 +39,7 @@ bool detectDiceFromJPEG(const uint8_t* jpeg, size_t jpegLen, const String& serve
   if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED) {
     String response = http.getString();
     
-    // Parse JSON response: {"detected": true, "value": 15, "confidence": 0.95, "x": 100, "y": 50, "w": 80, "h": 80}
+    // Parse JSON response: {"detected": true, "value": 15, "confidence": 0.95, "neighbors": [7,19,13], "second_most_likely": 14}
     // Use DynamicJsonDocument with fixed size to avoid heap fragmentation
     DynamicJsonDocument doc(256);
     DeserializationError err = deserializeJson(doc, response);
@@ -46,10 +47,16 @@ bool detectDiceFromJPEG(const uint8_t* jpeg, size_t jpegLen, const String& serve
       out.detected = doc["detected"] | false;
       out.value = doc["value"] | 0;
       out.confidence = doc["confidence"] | 0.0f;
-      out.x = doc["x"] | 0;
-      out.y = doc["y"] | 0;
-      out.w = doc["w"] | 0;
-      out.h = doc["h"] | 0;
+      // Bounding box removed - always set to 0
+      out.x = 0;
+      out.y = 0;
+      out.w = 0;
+      out.h = 0;
+      // Extract second_most_likely if available
+      out.second_most_likely = doc["second_most_likely"] | 0;
+      if (out.second_most_likely < 1 || out.second_most_likely > 20) {
+        out.second_most_likely = 0;
+      }
       success = out.detected;
     }
   } else {
