@@ -1,4 +1,10 @@
-# Dice Detection Server - Quick Setup
+# ESP32-CAM Dice Detection - Quick Setup
+
+## Hardware
+
+- **ESP32-CAM** (AI-Thinker) with USB-to-Serial adapter
+- **Power:** 5V via USB or external (stable power required)
+- **Programming:** Connect GPIO0 to GND, press RESET, upload via PlatformIO
 
 ## The Problem
 
@@ -6,7 +12,12 @@ Edge Impulse on ESP32-CAM gives poor results for d20 dice (20 classes is too har
 
 ## The Solution
 
-Offload detection to a PC/server running TensorFlow. ESP32 sends images → Server detects → Returns result.
+Offload detection to a PC/server. ESP32 sends images → Server detects → Returns result.
+
+**Two detection methods:**
+
+1. **TensorFlow model** (local server) - Fast, free, requires training
+2. **ChatGPT Vision** (OpenAI API) - No training, costs per request
 
 ---
 
@@ -18,7 +29,7 @@ Offload detection to a PC/server running TensorFlow. ESP32 sends images → Serv
 git clone https://github.com/rsandrini/dnd-dice-detection-cnn.git reference_repo_1
 ```
 
-This includes a pre-trained model at `reference_repo_1/dices_model.h5`
+Pre-trained model: `reference_repo_1/dices_model.h5`
 
 ### 2. Install & Run Server
 
@@ -31,15 +42,39 @@ Server runs on `http://0.0.0.0:5000`
 
 ### 3. Configure ESP32-CAM
 
-Find your PC's IP (`ipconfig` on Windows, `ifconfig` on Linux/Mac), then connect to the tower page (`http://192.168.4.1/` or its STA IP).
+1. Flash firmware: `pio run -e esp32cam -t upload`
+2. Connect to ESP32 AP (`DiceTower-XXYY`, password: `dungeon123`) or its Wi-Fi IP
+3. Open `http://192.168.4.1/` or `http://ESP32_IP/`
+4. In **External Detection Server** card:
+   - Enter `http://YOUR_PC_IP:5000/detect`
+   - Click **Save Server URL**
+5. Hit **Capture & Recognize Dice** or **ChatGPT Guess**
 
-In the new **External Detection Server** card:
+Done! ESP32 automatically uses the server.
 
-1. Enter `http://YOUR_PC_IP:5000/detect`
-2. Click **Save Server URL**
-3. Hit **Capture & Recognize Dice**
+---
 
-Done! Call `/dice/capture` on ESP32 - it uses the server automatically.
+## Detection Methods
+
+### TensorFlow Model (Default)
+
+- **Endpoint:** `/detect` (server)
+- **Cost:** Free (local)
+- **Speed:** ~100-250ms
+- **Accuracy:** Depends on training data
+
+### ChatGPT Vision (Optional)
+
+- **Endpoint:** `/gpt_detect` (server)
+- **Cost:** ~$0.01 per image (OpenAI API)
+- **Speed:** ~1-3 seconds
+- **Accuracy:** Good, no training needed
+
+**Setup ChatGPT:**
+
+1. Create `.env` file: `OPENAI_API_KEY=sk-...`
+2. Server auto-loads key from `.env`
+3. Use **ChatGPT Guess** button in ESP32 UI
 
 ---
 
@@ -51,8 +86,7 @@ Done! Call `/dice/capture` on ESP32 - it uses the server automatically.
    reference_repo_1/dataset/number_detection/train/d20/
    ├── 1/    (all images showing "1")
    ├── 2/    (all images showing "2")
-   ├── ...
-   └── 20/   (all images showing "20")
+   └── ...   (folders 1-20)
    ```
 
 2. **Train:**
@@ -69,30 +103,20 @@ Done! Call `/dice/capture` on ESP32 - it uses the server automatically.
 
 ---
 
-## Model Location
+## Files
 
-Server looks for model in this order:
-
-1. `dices_model.h5` (root)
-2. `models/dices_model.h5`
-3. `reference_repo_1/dices_model.h5` ← Pre-trained (already exists!)
+- `dice_detection_server.py` - Flask server (TensorFlow + ChatGPT)
+- `gpt_dice_integration.py` - ChatGPT Vision integration
+- `src/esp32cam/` - ESP32 firmware
+- `reference_repo_1/` - Training scripts + model (clone separately)
 
 ---
 
 ## Setup on New PC
 
-After cloning this repo:
-
 ```bash
+git clone <this-repo>
 git clone https://github.com/rsandrini/dnd-dice-detection-cnn.git reference_repo_1
 pip install -r dice_detection_server_requirements.txt
 python dice_detection_server.py
 ```
-
----
-
-## Files
-
-- `dice_detection_server.py` - Flask server (auto-loads model)
-- `src/esp32cam/` - ESP32 firmware (updated to use server)
-- `reference_repo_1/` - Training scripts + pre-trained model (not in git, clone separately)

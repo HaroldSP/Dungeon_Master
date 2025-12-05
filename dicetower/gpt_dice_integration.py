@@ -62,14 +62,13 @@ def detect_with_chatgpt(image_bytes: bytes) -> Dict[str, Any]:
 
     client = OpenAI(api_key=api_key)
 
-    # Prompt engineered for a single (blue) standard D20 in the frame
+    # Prompt engineered for a single standard D20 in the frame
     system_prompt = (
         "You are an assistant that looks at images of a single standard 20-sided dice (D20).\n"
-        "- The die is blue.\n"
         "- The task is to identify the value on the face that is pointing straight up on the die.\n"
         "- The die can be in any orientation (rotated, tilted, or upside down), so digits may appear at arbitrary angles.\n"
         "- A standard D20 layout means that you usually see the top face plus roughly three neighboring faces.\n"
-        "- Opposite-face pairs on a standard D20 sum to 21, approximately as follows:\n"
+        "- CRITICAL: Opposite-face pairs on a standard D20 sum to 21, approximately as follows:\n"
         "    1 ↔ 20\n"
         "    2 ↔ 19\n"
         "    3 ↔ 18\n"
@@ -80,6 +79,13 @@ def detect_with_chatgpt(image_bytes: bytes) -> Dict[str, Any]:
         "    8 ↔ 13\n"
         "    9 ↔ 12\n"
         "    10 ↔ 11\n"
+        "- IMPORTANT CONSTRAINT: If you predict that the top face is a certain number, it is IMPOSSIBLE for the "
+        "neighboring faces to include its opposite number. For example:\n"
+        "    - If top face is 20, the neighboring faces CANNOT include 1\n"
+        "    - If top face is 15, the neighboring faces CANNOT include 6\n"
+        "    - If top face is 7, the neighboring faces CANNOT include 14\n"
+        "    - And so on for all opposite pairs\n"
+        "Use this as a consistency check: if you see an opposite pair both visible, your top face prediction is wrong.\n"
         "- The following table (TOPFACE(left,right,down)) is an approximate example of three neighbors for each top face. "
         "The exact arrangement may differ slightly on some dice, but you can use it as a consistency check:\n"
         "    1(7,19,13)\n"
@@ -102,6 +108,12 @@ def detect_with_chatgpt(image_bytes: bytes) -> Dict[str, Any]:
         "    18(5,4,2)\n"
         "    19(3,9,1)\n"
         "    20(2,14,8)\n"
+        "- CRITICAL FOR NUMBERS 6 AND 9: These are very tricky because the die can be rolled upside down. "
+        "The main and ONLY reliable attribute to distinguish 6 from 9 is the small single dot (·) that symbolizes "
+        "where the imaginary bottom line of the number is drawn:\n"
+        "    - If the dot is closer to the rounded (circled) part of the number → it is 6\n"
+        "    - If the dot is closer to the 'tail' (straight part) of the number → it is 9\n"
+        "Pay close attention to the dot position relative to the number shape when determining 6 vs 9.\n"
         "- You will often see the top face plus three neighboring faces. One example (not the only possible orientation):\n"
         "    If 15 is the top face, the three neighboring visible faces might be:\n"
         "      5 on the left, 12 on the right, and 7 toward the bottom.\n"
@@ -110,9 +122,11 @@ def detect_with_chatgpt(image_bytes: bytes) -> Dict[str, Any]:
         "If you are not at least 60% sure, set detected:false and value:0."
     )
     user_prompt = (
-        "Look at this photo of a single blue standard D20 dice.\n"
+        "Look at this photo of a single standard D20 dice.\n"
         "- Determine the number on the face that is facing straight up (the rolled value).\n"
         "- Take into account that the die can be rotated or upside down and that neighboring faces can help you verify the guess.\n"
+        "- Remember: opposite numbers (summing to 21) CANNOT both be visible as neighbors.\n"
+        "- For numbers 6 and 9, carefully examine the dot position: closer to rounded part = 6, closer to tail = 9.\n"
         "Respond ONLY with JSON using this schema and nothing else:\n"
         "{\n"
         '  \"detected\": true or false,\n'

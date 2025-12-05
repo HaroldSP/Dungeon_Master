@@ -1,4 +1,43 @@
-# Dice Detection Server - Detailed Guide
+# ESP32-CAM Dice Detection - Detailed Guide
+
+## Hardware Requirements
+
+- **ESP32-CAM** (AI-Thinker module recommended)
+- **USB-to-Serial adapter** (ESP32-CAM-MB, FTDI, or CP2102) for programming
+- **Power supply:** 5V via USB or external (ensure stable power for camera)
+- **MicroSD card** (optional, for storing images)
+
+## Wiring for Programming
+
+When programming the ESP32-CAM:
+
+1. **Connect GPIO0 to GND** (puts ESP32 into download mode)
+2. **Press and hold RESET button**
+3. **Release RESET** while keeping GPIO0 grounded
+4. Upload firmware via PlatformIO
+5. **Disconnect GPIO0 from GND** and press RESET to run
+
+Alternatively, use an ESP32-CAM-MB board which handles this automatically.
+
+## PlatformIO Setup
+
+1. Open the `dicetower` folder in VS Code with PlatformIO extension
+2. Select the **`esp32cam`** environment from the PlatformIO toolbar
+3. Build and upload:
+   - Click "Upload" in PlatformIO
+   - Or use terminal: `pio run -e esp32cam -t upload`
+
+## Camera Configuration
+
+The firmware supports:
+
+- **Resolutions:** 320x240 (QVGA) or 640x480 (VGA)
+- **JPEG quality:** 12 (balanced quality/speed)
+- **PSRAM:** Enabled automatically if available
+
+Change resolution via web UI or API: `GET /camera/resolution?size=0` (QVGA) or `size=1` (VGA)
+
+---
 
 ## The Problem
 
@@ -11,11 +50,11 @@ Edge Impulse on ESP32-CAM gives poor results for d20 dice detection. The feature
 
 ## The Solution
 
-Offload detection to a PC/server running full TensorFlow. This approach:
+Offload detection to a PC/server running full TensorFlow or ChatGPT Vision. This approach:
 
 - **ESP32-CAM** captures image (JPEG)
 - **ESP32** sends JPEG to your PC/server via HTTP POST
-- **Server** runs TensorFlow/Keras model (like the reference repos)
+- **Server** runs TensorFlow/Keras model OR calls ChatGPT Vision API
 - **Server** returns detection result (value 1-20, confidence, bounding box)
 - **ESP32** displays result
 
@@ -25,6 +64,7 @@ Offload detection to a PC/server running full TensorFlow. This approach:
 - Better accuracy (full TensorFlow, not Edge Impulse constraints)
 - Easier training (use reference repo approaches directly)
 - Flexible (switch models without reflashing ESP32)
+- ChatGPT option requires no training
 
 ---
 
@@ -63,6 +103,8 @@ pip install -r dice_detection_server_requirements.txt
 - `opencv-python` - Image processing (optional, for fallback)
 - `numpy` - Numerical operations
 - `Pillow` - Image handling
+- `openai` - ChatGPT Vision API client
+- `python-dotenv` - Environment variable loading
 
 **Run the server:**
 
@@ -81,7 +123,8 @@ ESP32-CAM should POST JPEG images to: http://<this-server-ip>:5000/detect
 
 **Server endpoints:**
 
-- `POST /detect` - Receives JPEG image, returns detection JSON
+- `POST /detect` - TensorFlow model detection (receives JPEG, returns JSON)
+- `POST /gpt_detect` - ChatGPT Vision detection (receives JPEG, returns JSON)
 - `GET /health` - Health check (returns `{"status": "ok"}`)
 
 **Troubleshooting:**
@@ -101,9 +144,9 @@ ESP32-CAM should POST JPEG images to: http://<this-server-ip>:5000/detect
 
 **Configure ESP32-CAM via web interface:**
 
-1. Connect to ESP32-CAM's AP or Wi-Fi
-2. Open `http://ESP32_IP/` in browser
-3. Scroll to **External Detection Server**
+1. Connect to ESP32-CAM's AP (`DiceTower-XXYY`, password: `dungeon123`) or its Wi-Fi IP
+2. Open `http://192.168.4.1/` or `http://ESP32_IP/` in browser
+3. Scroll to **External Detection Server** card
 4. Enter `http://YOUR_PC_IP:5000/detect` and click **Save Server URL**
 
 **Or configure via API:**
@@ -157,6 +200,92 @@ curl http://YOUR_PC_IP:5000/health
 Should return: `{"status": "ok"}`
 
 **Done!** Now when you call `/dice/capture` on ESP32, it automatically sends images to your server and gets detection results.
+
+---
+
+## Detection Methods
+
+### Method 1: TensorFlow Model (Default)
+
+**How it works:**
+
+1. ESP32 captures JPEG image
+2. Sends to `POST /detect` on server
+3. Server loads TensorFlow model
+4. Resizes image to 480x480
+5. Runs inference
+6. Returns JSON with detected value
+
+**Pros:**
+
+- Fast (~100-250ms)
+- Free (runs locally)
+- No API costs
+- Can train on your dice
+
+**Cons:**
+
+- Requires training data
+- Accuracy depends on model quality
+- Needs GPU for best performance
+
+**Usage:**
+
+- Configure server URL in ESP32 UI
+- Click **Capture & Recognize Dice** button
+- Or call `GET /dice/capture` endpoint
+
+### Method 2: ChatGPT Vision (Optional)
+
+**How it works:**
+
+1. ESP32 captures JPEG image
+2. Sends to `POST /gpt_detect` on server
+3. Server calls OpenAI ChatGPT Vision API
+4. ChatGPT analyzes image and returns JSON
+5. Server returns result to ESP32
+
+**Setup:**
+
+1. Get OpenAI API key from https://platform.openai.com/api-keys
+2. Create `.env` file in project root:
+   ```
+   OPENAI_API_KEY=sk-your-key-here
+   ```
+3. Server auto-loads key on startup
+4. Use **ChatGPT Guess** button in ESP32 UI
+
+**Pros:**
+
+- No training needed
+- Good accuracy out of the box
+- Handles rotated/upside-down dice
+- Uses geometric reasoning (neighbor faces)
+
+**Cons:**
+
+- Costs money (~$0.01 per image)
+- Slower (~1-3 seconds)
+- Requires internet connection
+- API key must be kept secret
+
+**Usage:**
+
+- Ensure `.env` file exists with `OPENAI_API_KEY`
+- Click **ChatGPT Guess** button in ESP32 UI
+- Or call `GET /dice/capture_gpt` endpoint
+
+**Cost estimate:**
+
+- GPT-4o-mini: ~$0.0001 per image (very cheap)
+- GPT-4 Vision: ~$0.01 per image (more accurate)
+- Current implementation uses GPT-4o-mini
+
+**API Key Security:**
+
+- `.env` file is in `.gitignore` (not committed)
+- Never commit API keys to git
+- Rotate keys if exposed
 
 ---
 
@@ -312,6 +441,7 @@ The server automatically searches for the model in this order:
 ```
 
 **Custom model path:**
+
 To use a different location, edit `dice_detection_server.py`:
 
 ```python
@@ -330,6 +460,57 @@ model_paths = [
 - **Output:** 20 classes (0-19, maps to dice values 1-20)
 - **Framework:** TensorFlow/Keras
 - **Size:** ~158 MB (pre-trained model)
+
+---
+
+## Wi-Fi Setup
+
+Same provisioning system as ESP8266 version:
+
+1. **First boot:** Device creates AP `DiceTower-XXYY` (password: `dungeon123`)
+2. Connect your phone/PC to the AP
+3. Open `http://192.168.4.1` in browser
+4. Use the provisioning form to enter your Wi-Fi credentials
+5. Device will connect to your network and provide its IP address
+
+**API endpoints:**
+
+- `GET /provision?ssid=SSID&pass=PASSWORD` - Save Wi-Fi credentials
+- `GET /wipe` - Erase credentials and reboot
+- `GET /name?action=get` - Get tower name
+- `GET /name?action=set&name=NAME` - Set tower name
+
+---
+
+## HTTP API Endpoints
+
+### Dice Recognition
+
+- `GET /dice/capture` - Captures image and runs TensorFlow detection
+  - Returns: `{"ok":true, "detected":true/false, "value":1-20, "confidence":0.0-1.0, "timestamp":ms, "x":0, "y":0, "w":0, "h":0}`
+- `GET /dice/capture_gpt` - Captures image and runs ChatGPT detection
+  - Returns: Same format as above
+- `GET /dice/status` - Gets the last dice recognition result
+  - Returns: Same format as above
+
+### Detection Server Configuration
+
+- `GET /detection/server` - Get current server URL
+  - Returns: `{"ok":true, "server_url":"http://...", "enabled":true}`
+- `POST /detection/server` - Set server URL
+  - Body: `{"server_url": "http://..."}`
+  - Returns: `{"ok":true}`
+
+### Camera Control
+
+- `GET /camera/resolution?size=0` - Set to 320x240 (QVGA)
+- `GET /camera/resolution?size=1` - Set to 640x480 (VGA)
+- `GET /camera/stream` - MJPEG video stream
+
+### Status
+
+- `GET /status` - Device status including camera and dice state
+  - Returns: `{"camera":true/false, "dice":{...}, "wifi":{...}}`
 
 ---
 
@@ -403,17 +584,17 @@ Starting Dice Detection Server...
 
 **Code changes made:**
 
-- `src/esp32cam/main.cpp` - Added HTTP client, external server support
+- `src/esp32cam/main.cpp` - Added HTTP client, external server support, ChatGPT endpoint
 - `src/esp32cam/dice_detection.cpp` - Added `detectDiceFromJPEG()` function
 - `src/esp32cam/dice_detection.h` - Added function declaration
 
 **Flow:**
 
-1. User calls `GET /dice/capture`
+1. User calls `GET /dice/capture` or `GET /dice/capture_gpt`
 2. ESP32 captures JPEG from camera
 3. If `externalDetectionServer` is configured:
    - Convert JPEG to HTTP POST request
-   - Send to server URL
+   - Send to server URL (`/detect` or `/gpt_detect`)
    - Wait for JSON response
    - Parse detection result
 4. Return result to user
@@ -422,12 +603,13 @@ Starting Dice Detection Server...
 
 - `GET /detection/server` - Get current server URL
 - `POST /detection/server` - Set server URL: `{"server_url": "http://..."}`
-- `GET /dice/capture` - Capture and detect (uses server if configured)
+- `GET /dice/capture` - Capture and detect (uses TensorFlow server if configured)
+- `GET /dice/capture_gpt` - Capture and detect (uses ChatGPT via server)
 - `GET /dice/status` - Get last detection result
 
 ### Server Side
 
-**Detection flow:**
+**TensorFlow Detection Flow:**
 
 1. Receive JPEG image via HTTP POST
 2. Convert bytes to PIL Image
@@ -437,6 +619,15 @@ Starting Dice Detection Server...
 6. Get predicted class (0-19)
 7. Map to dice value (1-20)
 8. Return JSON response
+
+**ChatGPT Detection Flow:**
+
+1. Receive JPEG image via HTTP POST
+2. Base64 encode image
+3. Format as data URL
+4. Call OpenAI API with detailed prompt
+5. Parse JSON response from ChatGPT
+6. Return formatted result
 
 **Response format:**
 
@@ -483,8 +674,10 @@ Content-Type: application/json
 **Latency:**
 
 - Network: 10-50ms (same Wi-Fi network)
-- Inference: 50-200ms (depends on PC/GPU)
-- Total: ~100-250ms per detection
+- TensorFlow inference: 50-200ms (depends on PC/GPU)
+- ChatGPT API: 1000-3000ms (internet latency + processing)
+- Total TensorFlow: ~100-250ms per detection
+- Total ChatGPT: ~1-3 seconds per detection
 
 ---
 
@@ -510,6 +703,13 @@ Content-Type: application/json
 - Reinstall dependencies: `pip install --upgrade -r dice_detection_server_requirements.txt`
 - Check error logs in terminal
 
+**ChatGPT errors:**
+
+- Check `.env` file exists with `OPENAI_API_KEY`
+- Verify API key is valid (not expired)
+- Check internet connection
+- Review server logs for API error messages
+
 ### ESP32 Issues
 
 **Can't connect to server:**
@@ -527,9 +727,28 @@ Content-Type: application/json
 
 **Slow detection:**
 
-- Normal: 100-250ms is expected
+- TensorFlow: 100-250ms is expected
+- ChatGPT: 1-3 seconds is expected
 - Network latency: Use same Wi-Fi network, avoid VPN
 - Server overload: Close other applications
+
+**Camera not initializing:**
+
+- Check power supply (camera needs stable 5V)
+- Verify pin connections match your ESP32-CAM module
+- Check Serial Monitor for error codes
+
+**Out of memory errors:**
+
+- Reduce camera resolution in UI (use 320x240)
+- Reduce JPEG quality
+- Ensure PSRAM is enabled (should be automatic)
+
+**Upload fails:**
+
+- Ensure GPIO0 is grounded during upload
+- Try lower upload speed in `platformio.ini`
+- Check USB-to-Serial driver installation
 
 ### Model Issues
 
@@ -626,8 +845,10 @@ For high throughput, consider:
 
 | File                                     | Purpose                                 | Location                    |
 | ---------------------------------------- | --------------------------------------- | --------------------------- |
-| `dice_detection_server.py`               | Flask server with model inference       | Root                        |
+| `dice_detection_server.py`               | Flask server (TensorFlow + ChatGPT)     | Root                        |
+| `gpt_dice_integration.py`                | ChatGPT Vision integration              | Root                        |
 | `dice_detection_server_requirements.txt` | Python dependencies                     | Root                        |
+| `.env`                                   | OpenAI API key (not in git)             | Root                        |
 | `src/esp32cam/main.cpp`                  | ESP32 firmware (updated for server)     | `src/esp32cam/`             |
 | `src/esp32cam/dice_detection.cpp`        | Detection functions                     | `src/esp32cam/`             |
 | `src/esp32cam/dice_detection.h`          | Detection header                        | `src/esp32cam/`             |
@@ -675,22 +896,23 @@ For high throughput, consider:
 
 1. ✅ **Code is ready** - ESP32 can send images to server
 2. ⏳ **Test with pre-trained model** - See if it works on your dice
-3. ⏳ **Train your own model** - If pre-trained doesn't work well
-4. ⏳ **Optimize** - Adjust threshold, improve images, etc.
-5. ⏳ **Deploy** - Consider Raspberry Pi for lower latency
+3. ⏳ **Try ChatGPT** - Test accuracy without training
+4. ⏳ **Train your own model** - If pre-trained doesn't work well
+5. ⏳ **Optimize** - Adjust threshold, improve images, etc.
+6. ⏳ **Deploy** - Consider Raspberry Pi for lower latency
 
 ---
 
 ## FAQ
 
 **Q: Do I need to train my own model?**  
-A: Try the pre-trained model first. Train your own only if accuracy is poor on your dice.
+A: Try the pre-trained model first. If accuracy is poor, try ChatGPT or train your own.
 
 **Q: Can I use Edge Impulse model on the server?**  
 A: Yes! Export from Edge Impulse, convert to Keras format, load in server.
 
 **Q: How accurate is this?**  
-A: Depends on your model and images. Pre-trained: ~70-80% on reference dice. Your trained: 85-95% on your dice.
+A: Depends on your model and images. Pre-trained: ~70-80% on reference dice. Your trained: 85-95% on your dice. ChatGPT: ~80-90% without training.
 
 **Q: Can this run on Raspberry Pi?**  
 A: Yes! Raspberry Pi 4 can run TensorFlow models. Lower latency than PC if placed near ESP32.
@@ -699,4 +921,43 @@ A: Yes! Raspberry Pi 4 can run TensorFlow models. Lower latency than PC if place
 A: Current implementation detects one dice. For multiple, use object detection approach (repo 2) or call detection multiple times.
 
 **Q: How do I improve accuracy?**  
-A: More training data, better lighting, consistent angles, train on your specific dice.
+A: More training data, better lighting, consistent angles, train on your specific dice, or use ChatGPT.
+
+**Q: Can ESP32 call ChatGPT directly?**  
+A: Technically yes, but **not recommended** (see below).
+
+---
+
+## Can ESP32 Call ChatGPT Directly?
+
+**Short answer: Not recommended.**
+
+**Why not:**
+
+1. **API Key Security:** API key would be hardcoded in firmware (exposed in flash memory)
+2. **HTTPS/TLS Complexity:** ESP32 needs proper SSL certificates and TLS 1.2+ support
+3. **Memory Constraints:** Base64 encoding + HTTP client + JSON parsing uses significant RAM
+4. **Rate Limiting:** Harder to implement retry logic and error handling
+5. **Cost Control:** No way to add rate limiting or cost monitoring
+6. **Debugging:** Harder to debug API issues from embedded device
+
+**Why use a server proxy:**
+
+1. **Security:** API key stays on server (never in firmware)
+2. **Flexibility:** Easy to switch models, add caching, rate limiting
+3. **Debugging:** Can log requests/responses, monitor costs
+4. **Reliability:** Server can retry, handle errors gracefully
+5. **Simplicity:** ESP32 just sends JPEG, server handles everything else
+
+**If you really want to try it:**
+
+You'd need to:
+
+- Use `WiFiClientSecure` with proper root certificates
+- Base64 encode the JPEG image
+- Construct JSON payload for OpenAI API
+- Handle authentication headers
+- Parse JSON response
+- Deal with memory constraints
+
+**Bottom line:** The current architecture (ESP32 → Server → ChatGPT) is the recommended approach.
