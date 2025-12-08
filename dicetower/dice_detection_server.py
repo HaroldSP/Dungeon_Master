@@ -22,6 +22,7 @@ import io
 import cv2
 import base64
 import os
+import json
 
 app = Flask(__name__)
 CORS(app)  # Allow ESP32 to call this from any origin
@@ -36,10 +37,11 @@ except Exception:
 # Load trained model (based on reference_repo_1 approach)
 model = None
 model_loaded = False
+class_mapping = None  # Will store class_index -> dice_value mapping
 
 def load_model():
     """Load the dice classification model from reference repo."""
-    global model, model_loaded
+    global model, model_loaded, class_mapping
     
     if model_loaded:
         return model
@@ -63,13 +65,37 @@ def load_model():
             model = keras.models.load_model(model_path)
             model_loaded = True
             print(f"✓ Model loaded from: {model_path}")
+            
+            # Try to load class mapping
+            mapping_paths = [
+                'class_mapping.json',
+                'reference_repo_1/class_mapping.json',
+            ]
+            for mp in mapping_paths:
+                if os.path.exists(mp):
+                    try:
+                        with open(mp, 'r') as f:
+                            mapping_data = json.load(f)
+                            class_mapping = mapping_data.get('class_to_dice_value', {})
+                            # Convert string keys to int
+                            class_mapping = {int(k): int(v) for k, v in class_mapping.items()}
+                            print(f"✓ Class mapping loaded from: {mp}")
+                            print(f"  Mapping: {class_mapping}")
+                            break
+                    except Exception as e:
+                        print(f"⚠ Failed to load mapping from {mp}: {e}")
+            
+            if class_mapping is None:
+                print("⚠ No class_mapping.json found. Using default mapping (class_index + 1).")
+                print("  This may be incorrect! Train with train_model_fixed.py to generate mapping.")
+            
             return model
         except Exception as e:
             print(f"✗ Failed to load model from {model_path}: {e}")
     else:
         print("⚠ No model found. Detection will return placeholder results.")
         print("  Place your trained model as 'dices_model.h5' in the current directory")
-        print("  Or train one using: cd reference_repo_1 && python train_model.py")
+        print("  Or train one using: cd reference_repo_1 && python train_model_fixed.py")
     
     return None
 
@@ -152,24 +178,37 @@ def detect_dice_model(image_bytes):
         if img.mode != 'RGB':
             img = img.convert('RGB')
         
-        # Resize to model's expected input size (480x480 for reference repo model)
-        img = img.resize((480, 480))
+        # Derive expected size from model input to avoid hardcoding
+        target_h, target_w = 480, 480
+        try:
+            if hasattr(model, "input_shape") and model.input_shape:
+                # input_shape: (None, H, W, C)
+                ish = model.input_shape
+                if len(ish) == 4 and ish[1] and ish[2]:
+                    target_h, target_w = int(ish[1]), int(ish[2])
+        except Exception:
+            pass
+        img = img.resize((target_w, target_h))
         
         # Convert to numpy array and normalize (0-1 range)
         img_array = np.array(img) / 255.0
         
-        # Add batch dimension (model expects shape: [1, 480, 480, 3])
+        # Add batch dimension (model expects shape: [1, H, W, 3])
         img_array = np.expand_dims(img_array, axis=0)
         
         # Run inference
         predictions = model.predict(img_array, verbose=0)
         
         # Get predicted class (0-19) and confidence
-        predicted_class = np.argmax(predictions[0])
+        predicted_class = int(np.argmax(predictions[0]))
         confidence = float(predictions[0][predicted_class])
         
-        # Map class index to dice value (0-19 → 1-20)
-        value = predicted_class + 1
+        # Map class index to dice value using mapping if available
+        if class_mapping and predicted_class in class_mapping:
+            value = class_mapping[predicted_class]
+        else:
+            # Fallback: assume class_index + 1 = dice_value (may be incorrect!)
+            value = predicted_class + 1
         
         return {
             "detected": confidence > 0.3,  # Threshold - adjust as needed
