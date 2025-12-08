@@ -40,8 +40,8 @@ bool detectDiceFromJPEG(const uint8_t* jpeg, size_t jpegLen, const String& serve
     String response = http.getString();
     
     // Parse JSON response: {"detected": true, "value": 15, "confidence": 0.95, "neighbors": [7,19,13], "second_most_likely": 14}
-    // Use DynamicJsonDocument with fixed size to avoid heap fragmentation
-    DynamicJsonDocument doc(256);
+    // Use DynamicJsonDocument with larger size to handle neighbors array
+    DynamicJsonDocument doc(512);
     DeserializationError err = deserializeJson(doc, response);
     if (!err) {
       out.detected = doc["detected"] | false;
@@ -58,6 +58,9 @@ bool detectDiceFromJPEG(const uint8_t* jpeg, size_t jpegLen, const String& serve
         out.second_most_likely = 0;
       }
       success = out.detected;
+    } else {
+      // JSON parsing failed - response might be too large or malformed
+      // Could add Serial.printf("JSON parse error: %s\n", err.c_str()); for debugging
     }
   } else {
     // Log error for debugging (optional, can be removed if Serial is not available)

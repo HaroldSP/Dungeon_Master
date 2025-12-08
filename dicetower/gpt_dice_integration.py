@@ -62,40 +62,19 @@ def detect_with_chatgpt(image_bytes: bytes) -> Dict[str, Any]:
 
     client = OpenAI(api_key=api_key)
 
-    # Prompt engineered for a single standard D20 in the frame
+    # Detailed prompt for a single standard D20 (icosahedron) using face-adjacency consistency checks
+    # Also known as dual-graph adjacency reasoning on an icosahedron
     system_prompt = (
-        "You are an expert assistant that analyzes images of a single standard 20-sided dice (D20) to identify the top face value.\n"
-        "- PRIMARY TASK: Identify the value on the face that is pointing straight up (the rolled value).\n"
-        "- The die can be in any orientation (rotated, tilted, or upside down), so digits may appear at arbitrary angles.\n"
-        "- A standard D20 layout means that you usually see the top face plus roughly three neighboring faces.\n"
-        "- The top face is the one facing the camera most directly, usually centered in the image.\n"
-        "- WORK METHODICALLY: First identify all visible numbers, then determine which one is on top using geometric reasoning.\n"
-        "- CRITICAL: Opposite-face pairs on a standard D20 sum to 21, approximately as follows:\n"
-        "    1 ↔ 20\n"
-        "    2 ↔ 19\n"
-        "    3 ↔ 18\n"
-        "    4 ↔ 17\n"
-        "    5 ↔ 16\n"
-        "    6 ↔ 15\n"
-        "    7 ↔ 14\n"
-        "    8 ↔ 13\n"
-        "    9 ↔ 12\n"
-        "    10 ↔ 11\n"
-        "- CRITICAL GEOMETRIC CONSTRAINT: The neighboring numbers SURROUND the top face number on three sides "
-        "(typically left, right, and down/bottom). They are physically adjacent to the top face on the die.\n"
-        "- IMPORTANT CONSTRAINT: If you predict that the top face is a certain number, it is IMPOSSIBLE for the "
-        "neighboring faces to include its opposite number. For example:\n"
-        "    - If top face is 20, the neighboring faces CANNOT include 1\n"
-        "    - If top face is 15, the neighboring faces CANNOT include 6\n"
-        "    - If top face is 7, the neighboring faces CANNOT include 14\n"
-        "    - And so on for all opposite pairs\n"
-        "Use this as a consistency check: if you see an opposite pair both visible, your top face prediction is wrong.\n"
-        "- STRICT TABLE MATCHING: If you identify neighboring numbers, they MUST match the table entry for your predicted top face. "
-        "If the neighbors you see do not match the table entry (or only partially match), your prediction is WRONG. "
-        "Example: If you see neighbors [10, 8, 12] and predict 17, check the table - 17(10,3,7) shows neighbors should be 10, 3, 7. "
-        "Only 10 matches, so 17 CANNOT be correct. Find the table entry that matches ALL or MOST of the neighbors you see.\n"
-        "- The following table (TOPFACE(left,right,down)) is an EXACT table of three neighbors for each top face. "
-        "This table is precise and reliable - use it as the definitive reference:\n"
+        "You are an expert assistant that analyzes images of a single standard 20-sided die (D20) to identify the TOP face value.\n"
+        "- PRIMARY GOAL: Report the number on the face pointing straight up (the rolled result).\n"
+        "- Orientation: The die may be rotated/tilted; digits can appear at arbitrary angles.\n"
+        "- Typically you see the top face plus about three neighboring faces.\n"
+        "- The top face is most centered and faces the camera. Use POSITION/ORIENTATION, not readability.\n"
+        "\n"
+        "OPPOSITE-FACE PAIRS (sum to 21): 1↔20, 2↔19, 3↔18, 4↔17, 5↔16, 6↔15, 7↔14, 8↔13, 9↔12, 10↔11.\n"
+        "If your predicted top appears together with its opposite as a neighbor, your guess is wrong.\n"
+        "\n"
+        "EXACT NEIGHBOR TABLE (TOPFACE(left,right,down)):\n"
         "    1(7,19,13)\n"
         "    2(12,18,20)\n"
         "    3(17,16,19)\n"
@@ -116,69 +95,50 @@ def detect_with_chatgpt(image_bytes: bytes) -> Dict[str, Any]:
         "    18(5,4,2)\n"
         "    19(3,9,1)\n"
         "    20(2,14,8)\n"
-        "- CRITICAL FOR NUMBERS 6 AND 9: These are very tricky because the die can be rolled upside down. "
-        "Follow this step-by-step algorithm STRICTLY when you think the top face might be either 6 or 9:\n"
-        "    STEP 1: Identify ALL visible numbers in the image. List them clearly.\n"
-        "    STEP 2: Look at the neighboring numbers. If one of the neighbors is also 6 or 9 "
-        "(the tricky pair), IGNORE that ambiguous neighbor completely and use ONLY the other neighboring numbers.\n"
-        "    Example: If you see neighbors (6, 11, 19), ignore the '6' (since it could be 6 or 9) and use only 11 and 19.\n"
-        "    STEP 3: Cross-reference the remaining neighboring numbers (11 and 19) with the table above.\n"
-        "    These numbers (11, 19) appear in the table entry for 9: 9(6,11,19), so the top face is most likely 9.\n"
-        "    STEP 4: Double-check by verifying: if top is 9, neighbors should include 6, 11, 19. If top is 6, neighbors should include 9, 16, 14.\n"
-        "    STEP 5: If confidence between 6 and 9 is still very close after using the table, use secondary attributes:\n"
-        "        - The small single dot (·) position: closer to rounded part = 6, closer to tail = 9\n"
-        "    STEP 6: CRITICAL - The final answer MUST be either 6 or 9, NEVER a neighboring number. "
-        "You are determining the TOP FACE value, not the neighbors. Verify your answer is one of these two candidates.\n"
-        "- CRITICAL FOR NUMBERS 1 AND 7: These can be confused, especially when rotated. "
-        "Follow this step-by-step algorithm STRICTLY when you think the top face might be either 1 or 7:\n"
-        "    STEP 1: Identify ALL visible numbers in the image. List them clearly.\n"
-        "    STEP 2: Look at the neighboring numbers. If one of the neighbors is also 1 or 7 "
-        "(the tricky pair), IGNORE that ambiguous neighbor completely and use ONLY the other neighboring numbers.\n"
-        "    Example: If you see neighbors (7, 19, 13), ignore the '7' (since it could be 1 or 7) and use only 19 and 13.\n"
-        "    STEP 3: Cross-reference the remaining neighboring numbers (19 and 13) with the table above.\n"
-        "    These numbers (19, 13) appear in the table entry for 1: 1(7,19,13), so the top face is most likely 1.\n"
-        "    STEP 4: Double-check by verifying: if top is 1, neighbors should include 7, 19, 13. If top is 7, neighbors should include 15, 17, 1.\n"
-        "    STEP 5: If confidence between 1 and 7 is still very close after using the table, use secondary attributes:\n"
-        "        - The upper part (top stroke) of 7 is typically longer than that of 1\n"
-        "        - Number 1 is usually a simple vertical line, while 7 has a horizontal top stroke\n"
-        "    STEP 6: CRITICAL - The final answer MUST be either 1 or 7, NEVER a neighboring number. "
-        "You are determining the TOP FACE value, not the neighbors. Verify your answer is one of these two candidates.\n"
-        "- You will often see the top face plus three neighboring faces. One example (not the only possible orientation):\n"
-        "    If 15 is the top face, the three neighboring visible faces might be:\n"
-        "      5 on the left, 12 on the right, and 7 toward the bottom.\n"
-        "- VERIFICATION PROCESS: Before finalizing your answer, follow these steps STRICTLY:\n"
-        "    1. List all visible numbers you can see in the image\n"
-        "    2. Identify which number is on TOP (the one facing straight up toward camera, most centered, typically largest/most prominent). "
-        "IMPORTANT: The top face is determined by POSITION (centered, facing camera) not by how easy it is to read.\n"
-        "    3. Identify which numbers are NEIGHBORS (surrounding the top face on three sides: left, right, down). "
-        "These are physically adjacent to the top face on the die.\n"
-        "    4. Look up your candidate top face in the EXACT table above and check if the neighbors you see match the table entry\n"
-        "    5. CRITICAL: If neighbors don't match the table (or only 1 out of 3 match), your prediction is WRONG - try another candidate\n"
-        "    6. Verify opposite numbers are not both visible (impossible - they sum to 21)\n"
-        "    7. For tricky pairs (6/9, 1/7), follow the special algorithm above\n"
-        "    8. Ensure your final answer is between 1-20, not a neighbor\n"
-        "    9. Double-check: The neighbors you list should be the ones surrounding the top face, not random visible numbers\n"
-        "    10. REMEMBER: Even if a lower number (like 8 or 10) is clearer/easier to read, if it's not the top face, it's NOT your answer\n"
-        "You must answer ONLY with a JSON object describing the upward facing value.\n"
-        "If you are not at least 60% sure, set detected:false and value:0."
+        "Note: left/right/down labels match this table when the top number is in its usual horizontal (upright) reading. Use these as adjacency checks even when rotated.\n"
+        "\n"
+        "TRICKY PAIRS (face-adjacency / dual-graph reasoning):\n"
+        "- 6 vs 9 algorithm:\n"
+        "  1) List all visible numbers.\n"
+        "  2) If a neighbor is also 6 or 9, ignore that ambiguous neighbor; use other neighbors.\n"
+        "  3) Cross-check remaining neighbors: 9 expects (6,11,19); 6 expects (9,16,14).\n"
+        "  4) If still close, use visual cues: the small dot is nearer the rounded part for 6, nearer the tail for 9.\n"
+        "  5) Final answer must be 6 or 9 (never a neighbor).\n"
+        "- 1 vs 7 algorithm:\n"
+        "  1) List all visible numbers.\n"
+        "  2) If a neighbor is 1 or 7, ignore that ambiguous neighbor; use other neighbors.\n"
+        "  3) Cross-check remaining neighbors: 1 expects (7,19,13); 7 expects (15,17,1).\n"
+        "  4) If still close, use visual cues: 7 usually has a horizontal top stroke; 1 is a vertical line.\n"
+        "  5) Final answer must be 1 or 7 (never a neighbor).\n"
+        "\n"
+        "VERIFICATION STEPS:\n"
+        "  1) List every visible number you can read in the image.\n"
+        "  2) From that set, pick the face that is most central/facing the camera as the top candidate.\n"
+        "  3) Identify NEIGHBORS: the three faces immediately adjacent around that top (left/right/down).\n"
+        "  4) Validate against the exact neighbor table: neighbors must match your candidate; if 0–1 match, reject and try another candidate from the visible set.\n"
+        "  5) Check opposites: top + its opposite cannot both appear as neighbors.\n"
+        "  6) Apply the special 6/9 or 1/7 algorithm if relevant.\n"
+        "  7) Final answer must be 1–20 and must be the top face, not a neighbor.\n"
+        "\n"
+        "Confidence rule: if below ~60% sure, set detected=false and value=0.\n"
+        "You must answer ONLY with JSON.\n"
     )
     user_prompt = (
-        "Analyze this image of a single standard D20 dice.\n"
+        "Analyze this image of a single standard D20.\n"
         "\n"
         "PROCESS:\n"
-        "1. Identify ALL visible numbers in the image.\n"
-        "2. Determine which number is on the TOP FACE (facing camera, most centered, typically largest).\n"
-        "   IMPORTANT: Pick by POSITION, not by how easy it is to read. Even if 8 or 10 is clearer, if it's not on top, it's wrong.\n"
-        "3. Identify NEIGHBORS (numbers surrounding the top face on left, right, and down sides).\n"
-        "4. Look up your candidate in the EXACT table - neighbors MUST match. If they don't match, try another candidate.\n"
-        "5. Identify the second most likely candidate.\n"
+        "1) Identify every visible number in the image.\n"
+        "2) Choose the top face by position/orientation: most centered and facing the camera (not by readability).\n"
+        "3) Identify neighbors: the three faces immediately adjacent around the chosen top (left/right/down).\n"
+        "4) Use the exact neighbor table to validate; if neighbors don't match, pick another candidate from the visible set.\n"
+        "5) Apply special handling for 6/9 or 1/7 if needed.\n"
+        "6) Also provide the second most likely top face.\n"
         "\n"
         "RULES:\n"
-        "- Neighbors must match the EXACT table entry for your predicted top face\n"
-        "- If you see [10,8,12] but table shows 17(10,3,7), only 10 matches - so 17 is WRONG\n"
-        "- Opposite numbers (summing to 21) CANNOT both be neighbors\n"
-        "- For 6/9 or 1/7: If a neighbor is in the tricky pair, ignore it and use OTHER neighbors\n"
-        "- Final answer MUST be 1-20, NEVER a neighbor\n"
+        "- Neighbors must match the table entry for the candidate top.\n"
+        "- Opposite faces (sum to 21) cannot both be neighbors.\n"
+        "- For 6/9 or 1/7, ignore ambiguous neighbors in that pair and use the others to match the table.\n"
+        "- Final answer must be 1–20 and must be the top face, never a neighbor.\n"
         "\n"
         "Respond ONLY with JSON:\n"
         "{\n"
@@ -229,7 +189,38 @@ def detect_with_chatgpt(image_bytes: bytes) -> Dict[str, Any]:
 
         import json
 
-        data = json.loads(text)
+        # Clean up the text - remove markdown code blocks if present
+        if text:
+            text = text.strip()
+            # Remove markdown code blocks if ChatGPT wrapped the JSON
+            if text.startswith("```"):
+                lines = text.split("\n")
+                text = "\n".join(lines[1:-1]) if len(lines) > 2 else text
+            elif text.startswith("```json"):
+                lines = text.split("\n")
+                text = "\n".join(lines[1:-1]) if len(lines) > 2 else text
+
+        if not text or not text.strip():
+            return {
+                "detected": False,
+                "value": 0,
+                "confidence": 0.0,
+                "neighbors": [],
+                "second_most_likely": 0,
+                "error": "Empty response from ChatGPT"
+            }
+
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as e:
+            return {
+                "detected": False,
+                "value": 0,
+                "confidence": 0.0,
+                "neighbors": [],
+                "second_most_likely": 0,
+                "error": f"JSON parse error: {str(e)}. Response was: {text[:200]}"
+            }
         detected = bool(data.get("detected", False))
         value = int(data.get("value", 0))
         confidence = float(data.get("confidence", 0.0))
