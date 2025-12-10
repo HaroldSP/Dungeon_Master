@@ -60,6 +60,64 @@ bool detectDiceFromJPEG(const uint8_t* jpeg, size_t jpegLen, const String& serve
   http.end();
   return success;
 }
-#pragma GCC diagnostic pop
 
+// Multipart/form-data post to fixed test server (field name: file)
+bool detectDiceToTestServer(const uint8_t* jpeg, size_t jpegLen, const String& serverUrl, DiceDetection& out) {
+  if (serverUrl.length() == 0 || WiFi.status() != WL_CONNECTED) {
+    return false;
+  }
+
+  HTTPClient http;
+  String boundary = "----esp32boundary";
+  String contentType = "multipart/form-data; boundary=" + boundary;
+  if (!http.begin(serverUrl)) {
+    return false;
+  }
+  http.addHeader("Content-Type", contentType);
+  http.setTimeout(8000);
+
+  String head = "--" + boundary + "\r\n"
+                "Content-Disposition: form-data; name=\"file\"; filename=\"capture.jpg\"\r\n"
+                "Content-Type: image/jpeg\r\n\r\n";
+  String tail = "\r\n--" + boundary + "--\r\n";
+
+  size_t totalLen = head.length() + jpegLen + tail.length();
+  uint8_t* body = (uint8_t*)malloc(totalLen);
+  if (!body) {
+    http.end();
+    return false;
+  }
+
+  memcpy(body, head.c_str(), head.length());
+  memcpy(body + head.length(), jpeg, jpegLen);
+  memcpy(body + head.length() + jpegLen, tail.c_str(), tail.length());
+
+  int httpCode = http.POST(body, totalLen);
+  free(body);
+
+  bool success = false;
+  if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED) {
+    String response = http.getString();
+    DynamicJsonDocument doc(512);
+    DeserializationError err = deserializeJson(doc, response);
+    if (!err) {
+      out.detected = doc["detected"] | false;
+      out.value = doc["value"] | 0;
+      out.confidence = doc["confidence"] | 0.0f;
+      out.second_most_likely = doc["second_most_likely"] | 0;
+      out.x = 0;
+      out.y = 0;
+      out.w = 0;
+      out.h = 0;
+      if (out.second_most_likely < 1 || out.second_most_likely > 20) {
+        out.second_most_likely = 0;
+      }
+      success = out.detected;
+    }
+  }
+
+  http.end();
+  return success;
+}
+#pragma GCC diagnostic pop
 

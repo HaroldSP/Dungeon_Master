@@ -25,7 +25,7 @@
     >
       <v-window v-model="activeTab">
         <v-window-item value="manage">
-          <ManageTowers ref="manageTowersRef" />
+          <TowerGrid :show-header="false" />
         </v-window-item>
         <v-window-item value="add">
           <AddNewTower @provision-success="onProvisionSuccess" />
@@ -36,19 +36,11 @@
 </template>
 
 <script setup>
-  import { ref, watch } from 'vue';
-  import ManageTowers from '../components/ManageTowers.vue';
+  import { ref } from 'vue';
+  import TowerGrid from '../components/TowerGrid.vue';
   import AddNewTower from '../components/AddNewTower.vue';
 
   const activeTab = ref('manage');
-  const manageTowersRef = ref(null);
-
-  // Watch for tab changes to check status when Manage Towers tab becomes active
-  watch(activeTab, async newTab => {
-    if (newTab === 'manage' && manageTowersRef.value) {
-      await manageTowersRef.value.checkAllTowerStatusAndNames();
-    }
-  });
 
   function onProvisionSuccess() {
     activeTab.value = 'manage';

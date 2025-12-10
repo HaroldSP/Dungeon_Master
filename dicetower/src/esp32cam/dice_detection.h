@@ -18,3 +18,6 @@ bool detectDiceFromRGB(const uint8_t* rgb, int width, int height, DiceDetection&
 // External server detection (sends JPEG to server, returns result)
 bool detectDiceFromJPEG(const uint8_t* jpeg, size_t jpegLen, const String& serverUrl, DiceDetection& out);
 
+// Test server detection (multipart/form-data file field "file")
+bool detectDiceToTestServer(const uint8_t* jpeg, size_t jpegLen, const String& serverUrl, DiceDetection& out);
+

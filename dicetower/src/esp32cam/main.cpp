@@ -4,6 +4,7 @@
 #include <HTTPClient.h>
 #include <LittleFS.h>
 #include <ArduinoJson.h>
+#include <ESPmDNS.h>
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -225,6 +226,20 @@ static String makeApSsid() {
   return String(ssid);
 }
 
+static void tryStartMdns(const char* hostname) {
+  if (!hostname || !*hostname) return;
+  if (WiFi.status() != WL_CONNECTED) return;
+  if (MDNS.begin(hostname)) {
+    Serial.print("mDNS responder started: ");
+    Serial.print(hostname);
+    Serial.println(".local");
+    MDNS.addService("http", "tcp", 80);
+    MDNS.addService("http", "tcp", 81);
+  } else {
+    Serial.println("mDNS start failed");
+  }
+}
+
 // --- Camera initialization ---
 static bool initCamera() {
   camera_config_t config = {};
@@ -323,6 +338,7 @@ static void handleRoot() {
     "<h4>Dice Recognition</h4>"
     "<div style='display:flex;flex-wrap:wrap;gap:8px'>"
       "<button onclick='doGetAndUpdate(\"/dice/capture\")' title='GET /dice/capture - Captures a frame and runs local/ML detection'>Capture & Recognize Dice</button>"
+      "<button onclick='doGetAndUpdate(\"/dice/capture_test\")' title='Send to test server (multipart form-data)'>Test Server</button>"
       "<button onclick='doGetAndUpdate(\"/dice/capture_gpt\")' title='GET /dice/capture_gpt - Captures a frame and asks ChatGPT to guess the value'>ChatGPT Guess</button>"
       "<button onclick=doGet('/dice/status') title='GET /dice/status - Returns last detection result'>Get Last Result</button>"
     "</div>"
@@ -331,7 +347,7 @@ static void handleRoot() {
     "<h4>External Detection Server</h4>"
     "<p style='line-height:1.4'>1) Run <code>dice_detection_server.py</code> on your PC.<br>"
     "2) Enter the full URL (e.g. <code>http://192.168.0.102:5000/detect</code>) below.<br>"
-    "3) Click Save, then use Capture or ChatGPT to send frames through the server.</p>"
+    "3) Click Save, then use Capture, Test Server, or ChatGPT to send frames through the server.</p>"
     "<input id='serverUrl' placeholder='http://192.168.0.102:5000/detect' style='width:100%;padding:8px;margin-bottom:6px'/>"
     "<div style='display:flex;flex-wrap:wrap;gap:8px;margin-bottom:6px'>"
       "<button onclick=saveDetectionServer()>Save Server URL</button>"
@@ -365,6 +381,7 @@ static void handleRoot() {
     "<strong>GET /status</strong> - Camera and dice detection status (JSON)<br>"
     "<strong>GET /camera/stream</strong> - MJPEG video stream<br>"
     "<strong>GET /dice/capture</strong> - Capture frame and detect dice (JSON)<br>"
+    "<strong>GET /dice/capture_test</strong> - Capture frame and send to test server (multipart)<br>"
     "<strong>GET /dice/status</strong> - Last detection result (JSON)<br>"
     "<strong>POST /external/detection</strong> - Accept external detection (JSON body)<br>"
     "<strong>GET /provision?ssid=...&pass=...</strong> - Save Wi-Fi credentials<br>"
@@ -431,7 +448,7 @@ static void handleRoot() {
 "function commitAecValue(v){previewAecValue(v);updateCameraSetting('aec_value',v);}"
     "function updateDelay(v){document.getElementById('delayVal').textContent=v;updateCameraSetting('stream_delay_ms',v);}"
     "function setResolution(mode){mode=parseInt(mode);camSettings.frame_size_mode=mode;document.getElementById('resLabel').textContent=mode? '640x480':'320x240';updateCameraSetting('frame_size_mode',mode);}"
-    "document.addEventListener('DOMContentLoaded',()=>{loadDetectionServer();setStatusPolling(false);});"
+    "document.addEventListener('DOMContentLoaded',()=>{loadDetectionServer();});"
     "</script>"
     "</body></html>";
   httpServer.send(200, "text/html", html);
@@ -597,6 +614,48 @@ static void handleDiceCaptureGpt() {
   DiceDetection detection = {false, 0, 0, 0, 0, 0, 0.0f, 0};
   if (fb->format == PIXFORMAT_JPEG) {
     detectDiceFromJPEG(fb->buf, fb->len, gptUrl, detection);
+  }
+
+  esp_camera_fb_return(fb);
+  lastDetection = detection;
+  lastDetectionTimestamp = millis();
+
+  String json = String("{\"ok\":true,\"detected\":") + (detection.detected?"true":"false") +
+                ",\"value\":" + detection.value +
+                ",\"timestamp\":" + lastDetectionTimestamp +
+                ",\"confidence\":" + String(detection.confidence, 3) +
+                ",\"second_most_likely\":" + detection.second_most_likely + "}";
+  
+  addNoCacheAndCors();
+  httpServer.send(200, "application/json", json);
+}
+
+// Capture frame and send to fixed test server via multipart/form-data.
+static void handleDiceCaptureTest() {
+  if (!cameraInitialized) {
+    addNoCacheAndCors();
+    httpServer.send(500, "application/json", "{\"ok\":false,\"error\":\"camera not initialized\"}");
+    return;
+  }
+
+  if (WiFi.status() != WL_CONNECTED) {
+    addNoCacheAndCors();
+    httpServer.send(500, "application/json", "{\"ok\":false,\"error\":\"STA not connected\"}");
+    return;
+  }
+
+  const String testUrl = "http://192.168.0.102:8003/detect";
+
+  camera_fb_t* fb = esp_camera_fb_get();
+  if (!fb) {
+    addNoCacheAndCors();
+    httpServer.send(500, "application/json", "{\"ok\":false,\"error\":\"camera capture failed\"}");
+    return;
+  }
+
+  DiceDetection detection = {false, 0, 0, 0, 0, 0, 0.0f, 0};
+  if (fb->format == PIXFORMAT_JPEG) {
+    detectDiceToTestServer(fb->buf, fb->len, testUrl, detection);
   }
 
   esp_camera_fb_return(fb);
@@ -990,6 +1049,9 @@ void setup() {
   bool haveCreds = loadCredentials(creds);
   if (haveCreds) {
     (void)tryConnectSta(creds, 12000);
+    if (WiFi.status() == WL_CONNECTED) {
+      tryStartMdns("dicetower");
+    }
   }
 
   // HTTP routes
@@ -1017,6 +1079,20 @@ void setup() {
   httpServer.on("/detection/server", HTTP_GET, handleDetectionServer);
   httpServer.on("/detection/server", HTTP_POST, handleDetectionServer);
   httpServer.on("/detection/server", HTTP_OPTIONS, handleOptions);
+  httpServer.on("/dice/capture_test", handleDiceCaptureTest);
+  httpServer.on("/dice/capture_test", HTTP_OPTIONS, handleOptions);
+  httpServer.on("/whoami", HTTP_GET, []() {
+    JsonDocument doc;
+    doc["ok"] = true;
+    doc["sta_connected"] = (WiFi.status() == WL_CONNECTED);
+    doc["sta_ip"] = WiFi.localIP().toString();
+    doc["ap_ip"] = WiFi.softAPIP().toString();
+    doc["ap_ssid"] = currentApSsid;
+    String json;
+    serializeJson(doc, json);
+    addNoCacheAndCors();
+    httpServer.send(200, "application/json", json);
+  });
   httpServer.onNotFound([](){
     addNoCacheAndCors();
     httpServer.send(404, "text/plain", "Not Found");
