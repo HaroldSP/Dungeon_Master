@@ -4,9 +4,7 @@
 .vscode/launch.json
 .vscode/ipch
 
-# Reference repositories (external dependencies - re-clone on other PCs)
-reference_repo_1/
-reference_repo_2/
+# Reference repositories (external dependencies - removed)
 
 # Local secrets
 .env

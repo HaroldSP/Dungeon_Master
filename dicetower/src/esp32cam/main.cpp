@@ -331,7 +331,7 @@ static void handleRoot() {
     "<h4>External Detection Server</h4>"
     "<p style='line-height:1.4'>1) Run <code>dice_detection_server.py</code> on your PC.<br>"
     "2) Enter the full URL (e.g. <code>http://192.168.0.102:5000/detect</code>) below.<br>"
-    "3) Click Save, then use Capture to send frames through the server.</p>"
+    "3) Click Save, then use Capture or ChatGPT to send frames through the server.</p>"
     "<input id='serverUrl' placeholder='http://192.168.0.102:5000/detect' style='width:100%;padding:8px;margin-bottom:6px'/>"
     "<div style='display:flex;flex-wrap:wrap;gap:8px;margin-bottom:6px'>"
       "<button onclick=saveDetectionServer()>Save Server URL</button>"
@@ -392,7 +392,7 @@ static void handleRoot() {
     "function updateStatusToggleText(){const btn=document.getElementById('statusToggle');if(btn){btn.textContent=statusPolling?'Stop Status Updates':'Start Status Updates';}}"
     "function setStatusPolling(enabled){statusPolling=!!enabled;updateStatusToggleText();if(statusPolling){if(!statusTimer){pollStatus();}}else if(statusTimer){clearTimeout(statusTimer);statusTimer=null;}}"
     "function toggleStatusPolling(){setStatusPolling(!statusPolling);}"
-"function startStream(){const img=document.getElementById('mjpeg');img.src=streamUrl+'?t='+Date.now();setStatusPolling(true);}"
+"function startStream(){const img=document.getElementById('mjpeg');img.src=streamUrl+'?t='+Date.now();}"
 "function stopStream(){const img=document.getElementById('mjpeg');img.removeAttribute('src');img.src='';setStatusPolling(false);}"
     "async function loadDetectionServer(){try{const res=await fetch('/detection/server',{cache:'no-store'});if(!res.ok)throw new Error('HTTP '+res.status);const data=await res.json();const input=document.getElementById('serverUrl');if(input && data.server_url){input.value=data.server_url;}const box=document.getElementById('serverStatus');if(box){box.textContent=(data.enabled&&data.server_url)?'Using '+data.server_url:'Detection server disabled.';}}catch(err){const box=document.getElementById('serverStatus');if(box){box.textContent='Unable to load detection server info.';}show('ERR loading server: '+err);}}"
     "async function saveDetectionServer(){const input=document.getElementById('serverUrl');const url=input?input.value.trim():'';if(!url){show('Enter server URL first');return;}try{const res=await fetch('/detection/server',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({server_url:url}),cache:'no-store'});if(!res.ok){throw new Error('HTTP '+res.status);}show('Detection server saved');loadDetectionServer();}catch(err){show('ERR saving detection server: '+err);}}"
@@ -431,7 +431,7 @@ static void handleRoot() {
 "function commitAecValue(v){previewAecValue(v);updateCameraSetting('aec_value',v);}"
     "function updateDelay(v){document.getElementById('delayVal').textContent=v;updateCameraSetting('stream_delay_ms',v);}"
     "function setResolution(mode){mode=parseInt(mode);camSettings.frame_size_mode=mode;document.getElementById('resLabel').textContent=mode? '640x480':'320x240';updateCameraSetting('frame_size_mode',mode);}"
-    "document.addEventListener('DOMContentLoaded',()=>{loadDetectionServer();});"
+    "document.addEventListener('DOMContentLoaded',()=>{loadDetectionServer();setStatusPolling(false);});"
     "</script>"
     "</body></html>";
   httpServer.send(200, "text/html", html);
@@ -542,14 +542,6 @@ static void handleDiceCapture() {
     // Try external server first if configured
     if (externalDetectionServer.length() > 0 && WiFi.status() == WL_CONNECTED) {
       detectDiceFromJPEG(fb->buf, fb->len, externalDetectionServer, detection);
-    } else {
-      // Fallback to local detection (placeholder for now)
-      size_t rgbBytes = (size_t)fb->width * (size_t)fb->height * 3;
-      uint8_t* rgb = (uint8_t*)malloc(rgbBytes);
-      if (rgb && fmt2rgb888(fb->buf, fb->len, fb->format, rgb)) {
-        detectDiceFromRGB(rgb, fb->width, fb->height, detection);
-      }
-      if (rgb) free(rgb);
     }
   }
 
@@ -560,6 +552,8 @@ static void handleDiceCapture() {
   String json = String("{\"ok\":true,\"detected\":") + (detection.detected?"true":"false") +
                 ",\"value\":" + detection.value +
                 ",\"timestamp\":" + lastDetectionTimestamp +
+                ",\"confidence\":" + String(detection.confidence, 3) +
+                ",\"second_most_likely\":" + detection.second_most_likely +
                 ",\"x\":" + detection.x +
                 ",\"y\":" + detection.y +
                 ",\"w\":" + detection.w +
