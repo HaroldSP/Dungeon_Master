@@ -682,6 +682,30 @@ static void handleDiceStatus() {
   httpServer.send(200, "application/json", json);
 }
 
+// Return a single JPEG snapshot for external processing.
+static void handleCameraSnapshot() {
+  if (!cameraInitialized) {
+    addNoCacheAndCors();
+    httpServer.send(500, "text/plain", "camera not initialized");
+    return;
+  }
+  camera_fb_t* fb = esp_camera_fb_get();
+  if (!fb) {
+    addNoCacheAndCors();
+    httpServer.send(500, "text/plain", "capture failed");
+    return;
+  }
+
+  addNoCacheAndCors();
+  httpServer.sendHeader("Content-Type", "image/jpeg");
+  httpServer.sendHeader("Content-Disposition", "inline; filename=\"snapshot.jpg\"");
+  httpServer.setContentLength(fb->len);
+  httpServer.send(200);
+  WiFiClient client = httpServer.client();
+  client.write((const uint8_t*)fb->buf, fb->len);
+  esp_camera_fb_return(fb);
+}
+
 static void handleExternalDetection() {
   if (httpServer.method() == HTTP_OPTIONS) {
     handleOptions();
@@ -1067,6 +1091,8 @@ void setup() {
   httpServer.on("/dice/status", HTTP_OPTIONS, handleOptions);
   httpServer.on("/external/detection", HTTP_POST, handleExternalDetection);
   httpServer.on("/external/detection", HTTP_OPTIONS, handleOptions);
+  httpServer.on("/camera/snapshot", HTTP_GET, handleCameraSnapshot);
+  httpServer.on("/camera/snapshot", HTTP_OPTIONS, handleOptions);
   httpServer.on("/provision", handleProvision);
   httpServer.on("/provision", HTTP_OPTIONS, handleOptions);
   httpServer.on("/wipe", handleWipe);

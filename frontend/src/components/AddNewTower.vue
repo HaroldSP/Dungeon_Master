@@ -165,10 +165,52 @@
                 size="small"
                 color="success"
                 variant="tonal"
+                class="mb-2"
                 @click="testEspCapture"
                 >Test capture</v-btn
               >
             </div>
+            <v-text-field
+              v-model="pyServerUrl"
+              label="Python server URL"
+              variant="outlined"
+              density="comfortable"
+              class="mb-2"
+              placeholder="http://localhost:8003/detect"
+              persistent-placeholder
+            />
+            <div class="d-flex flex-wrap gap-2 mb-2">
+              <v-btn
+                size="small"
+                variant="outlined"
+                @click="pyHealth"
+                >Server health</v-btn
+              >
+              <v-btn
+                size="small"
+                color="success"
+                variant="tonal"
+                @click="pyTestDetect"
+                >Test detection</v-btn
+              >
+              <v-btn
+                v-if="pyChanged"
+                size="small"
+                color="primary"
+                variant="outlined"
+                @click="savePyServer"
+              >
+                Save new address
+              </v-btn>
+            </div>
+            <v-alert
+              v-if="pyStatusText"
+              type="info"
+              variant="tonal"
+              class="mb-2"
+            >
+              {{ pyStatusText }}
+            </v-alert>
             <v-alert
               v-if="espStatusText"
               type="info"
@@ -339,11 +381,16 @@
   const statusText = ref('');
   const apStatusText = ref('');
   const lastProvisionIp = ref('');
+  const storedPy = localStorage.getItem('pyServerUrl');
   const defaultEspApi =
     import.meta.env.VITE_API_BASE || 'http://192.168.110.53';
   const defaultEspStream =
     import.meta.env.VITE_STREAM_URL || 'http://192.168.110.53:81/camera/stream';
   const defaultNodeApi = 'http://192.168.110.54';
+  const defaultPyServer =
+    storedPy ||
+    import.meta.env.VITE_PY_SERVER_URL ||
+    'http://localhost:8003/detect';
   const espApiBase = ref(defaultEspApi);
   const espStreamUrl = ref(defaultEspStream);
   const nodemcuApiBase = ref(defaultNodeApi);
@@ -354,6 +401,11 @@
   const espStatusText = ref('');
   const nodeStatusText = ref('');
   const nodeProvisionResult = ref('');
+  const pyServerUrl = ref(defaultPyServer);
+  const pyStatusText = ref('');
+  const pyChanged = computed(
+    () => pyServerUrl.value.trim() !== defaultPyServer.trim()
+  );
   const loading = ref({
     provision: false,
     on: false,
@@ -613,6 +665,69 @@
     } catch (e) {
       espStatusText.value = `Capture error: ${e}`;
     }
+  }
+
+  async function pyHealth() {
+    pyStatusText.value = '';
+    const url = (pyServerUrl.value || '').trim().replace(/\/+$/, '');
+    if (!url) {
+      pyStatusText.value = 'Enter Python server URL';
+      return;
+    }
+    const healthUrl =
+      url.endsWith('/health') ||
+      url.endsWith('/detect') ||
+      url.endsWith('/detect/best')
+        ? url.replace(/\/detect(?:\/best)?$/, '/health')
+        : `${url}/health`;
+    try {
+      const res = await fetch(healthUrl, { cache: 'no-store' });
+      const text = await res.text();
+      pyStatusText.value = `Health → ${res.status}: ${text}`;
+    } catch (e) {
+      pyStatusText.value = `Health error: ${e}`;
+    }
+  }
+
+  async function pyTestDetect() {
+    pyStatusText.value = '';
+    const url = (pyServerUrl.value || '').trim().replace(/\/+$/, '');
+    if (!url) {
+      pyStatusText.value = 'Enter Python server URL';
+      return;
+    }
+    const snapBase = (espApiBase.value || defaultEspApi || '')
+      .trim()
+      .replace(/\/+$/, '');
+    if (!snapBase) {
+      pyStatusText.value = 'Enter ESP32-CAM API first';
+      return;
+    }
+    try {
+      const snapRes = await fetch(`${snapBase}/camera/snapshot`, {
+        cache: 'no-store',
+      });
+      if (!snapRes.ok) {
+        pyStatusText.value = `Snapshot failed ${snapRes.status}`;
+        return;
+      }
+      const blob = await snapRes.blob();
+      const fd = new FormData();
+      fd.append('file', new File([blob], 'frame.jpg', { type: 'image/jpeg' }));
+      const detectUrl = url;
+      const res = await fetch(detectUrl, { method: 'POST', body: fd });
+      const text = await res.text();
+      pyStatusText.value = `Detect → ${res.status}: ${text}`;
+    } catch (e) {
+      pyStatusText.value = `Detect error: ${e}`;
+    }
+  }
+
+  function savePyServer() {
+    const val = pyServerUrl.value.trim();
+    if (!val) return;
+    localStorage.setItem('pyServerUrl', val);
+    pyStatusText.value = 'Saved new address';
   }
 
   async function pingEspWhoami() {

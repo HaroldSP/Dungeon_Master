@@ -3,6 +3,7 @@
 
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from ultralytics import YOLO
 import cv2
 import numpy as np
@@ -12,8 +13,18 @@ import io
 
 app = FastAPI(title="Dice Detection API", description="API для детекции чисел на кубиках")
 
+# Enable CORS for local frontend/dev usage
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Загружаем модель при старте сервера
-model_path = 'runs/detect/dice_detection_run/weights/best.pt'
+# Используем raw string, чтобы путь на Windows не "съедал" backslash.
+model_path = r"C:\Users\gev\Desktop\Dungeon_Master\dicetower\src\esp32cam\cv\best.pt"
 
 if not os.path.exists(model_path):
     print(f"Предупреждение: Модель '{model_path}' не найдена.")
@@ -77,6 +88,18 @@ async def detect_dice(file: UploadFile = File(...)):
         
         # Запускаем детекцию
         results = model(img)
+        if results:
+            r0 = results[0]
+            try:
+                print(f"YOLO detect_best: incoming={img.shape[1]}x{img.shape[0]}, inference={r0.imgsz[1]}x{r0.imgsz[0]}")
+            except Exception:
+                pass
+        if results:
+            r0 = results[0]
+            try:
+                print(f"YOLO detect: incoming={img.shape[1]}x{img.shape[0]}, inference={r0.imgsz[1]}x{r0.imgsz[0]}")
+            except Exception:
+                pass
         
         # Обрабатываем результаты
         detected_numbers = []
@@ -210,14 +233,38 @@ async def detect_best_dice(file: UploadFile = File(...)):
 
 if __name__ == "__main__":
     import uvicorn
+    import socket
+    host = os.environ.get("SERVER_HOST", "0.0.0.0")
+    port = int(os.environ.get("SERVER_PORT", "8003"))
+
+    # Попробуем угадать локальный IP, чтобы удобнее было подключаться с ESP
+    def guess_local_ip():
+        ip = "localhost"
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+        except Exception:
+            pass
+        return ip
+
+    local_ip = guess_local_ip()
+
     print("\n" + "="*60)
     print("Запуск Dice Detection API сервера")
     print("="*60)
     print(f"Модель: {model_path}")
     print(f"Статус модели: {'Загружена' if model is not None else 'Не найдена'}")
-    print("\nСервер будет доступен по адресу: http://localhost:8003")
-    print("Документация API: http://localhost:8003/docs")
+    print("\nСервер слушает на:")
+    print(f"  http://{host}:{port}")
+    if host == "0.0.0.0":
+        print(f"  http://{local_ip}:{port}  (LAN)")
+    print("Документация API:")
+    print(f"  http://{host}:{port}/docs")
+    if host == "0.0.0.0":
+        print(f"  http://{local_ip}:{port}/docs")
     print("="*60 + "\n")
     
-    uvicorn.run(app, host="0.0.0.0", port=8003)
+    uvicorn.run(app, host=host, port=port)
 
