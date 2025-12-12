@@ -103,12 +103,6 @@
               />
               <v-btn
                 size="small"
-                variant="tonal"
-                @click="toggleExpand(t.id)"
-                text="Details"
-              />
-              <v-btn
-                size="small"
                 variant="outlined"
                 color="primary"
                 @click="openEdit(t)"
@@ -124,14 +118,12 @@
             </div>
 
             <v-expand-transition>
-              <div
-                v-if="expanded[t.id]"
-                class="mt-3"
-              >
+              <div class="mt-3">
                 <div class="text-body-2 mb-1">Live Stream</div>
                 <div class="stream-wrapper">
                   <img
                     v-if="streamSrc[t.id]"
+                    :key="streamSrc[t.id]"
                     :src="streamSrc[t.id]"
                     @load="onStreamLoad(t, $event)"
                     alt="Stream"
@@ -144,14 +136,12 @@
                   >
                     <div class="bbox-label">
                       {{ getPyTopDet(pythonResults[t.id])?.class }}
-                      ({{ getPyTopDet(pythonResults[t.id])?.confidence }})
+                      ({{
+                        getPyTopDet(pythonResults[t.id])?.confidence?.toFixed?.(
+                          2
+                        ) ?? '—'
+                      }})
                     </div>
-                  </div>
-                  <div
-                    v-else
-                    class="text-caption text-medium-emphasis"
-                  >
-                    No stream URL set
                   </div>
                 </div>
                 <div class="d-flex gap-2 mt-2">
@@ -180,6 +170,15 @@
                     @click="detectViaPython(t)"
                     :loading="loading[`${t.id}-py`]"
                     text="Detect (Python)"
+                  />
+                  <v-switch
+                    v-model="streamEnabled[t.id]"
+                    inset
+                    hide-details
+                    density="compact"
+                    class="ml-2"
+                    :label="streamEnabled[t.id] ? 'Stream on' : 'Stream off'"
+                    @change="onStreamToggle(t)"
                   />
                 </div>
 
@@ -222,7 +221,7 @@
                   type="success"
                 >
                   Last roll: {{ t.lastDetection.value }} (conf
-                  {{ t.lastDetection.confidence?.toFixed?.(3) ?? '—' }})
+                  {{ t.lastDetection.confidence?.toFixed?.(2) ?? '—' }})
                 </v-alert>
                 <v-alert
                   v-if="pythonResults[t.id]"
@@ -237,7 +236,11 @@
                   <div v-else-if="getPyTopDet(pythonResults[t.id])">
                     Python:
                     {{ getPyTopDet(pythonResults[t.id]).class }} (conf
-                    {{ getPyTopDet(pythonResults[t.id]).confidence }})
+                    {{
+                      getPyTopDet(pythonResults[t.id]).confidence?.toFixed?.(
+                        2
+                      ) ?? '—'
+                    }})
                   </div>
                   <div v-else>Python: no detections</div>
                 </v-alert>
@@ -460,6 +463,7 @@
   const streamSrc = ref({});
   const streamSizes = ref({});
   const expanded = ref({});
+  const streamEnabled = ref({});
   const pythonResults = ref({});
   const editDialog = ref(false);
   const editPyStatus = ref('');
@@ -527,6 +531,7 @@
 
   function refreshStream(tower) {
     if (!tower?.streamUrl || !tower?.id) return;
+    if (!streamEnabled.value[tower.id]) return;
     streamSrc.value[tower.id] = `${tower.streamUrl}?t=${Date.now()}`;
   }
 
@@ -543,27 +548,47 @@
   }
 
   function toggleExpand(id) {
-    expanded.value[id] = !expanded.value[id];
-    const t = towers.value.find(t => t.id === id);
-    if (expanded.value[id]) {
-      if (t?.streamUrl) {
-        streamSrc.value[id] = `${t.streamUrl}?t=${Date.now()}`;
-      }
-      if (t) pingStatus(t);
-    }
-    if (!expanded.value[id]) {
-      stopStream(id);
-      pythonResults.value[id] = undefined;
-    }
+    // keep details always open
+    expanded.value[id] = true;
   }
 
-  function stopStream(id) {
-    const copy = { ...streamSrc.value };
-    delete copy[id];
-    streamSrc.value = copy;
-    const sizesCopy = { ...streamSizes.value };
-    delete sizesCopy[id];
-    streamSizes.value = sizesCopy;
+  async function stopStream(id) {
+    if (!id && id !== 0) return;
+    const tower = towers.value.find(t => t.id === id);
+    if (tower?.apiBase) {
+      // Call ESP32 stop endpoint to force-close the stream
+      try {
+        await fetch(`${tower.apiBase}/camera/stream/stop`, {
+          method: 'POST',
+          cache: 'no-store',
+        });
+      } catch (e) {
+        // Ignore errors - we'll still clear the frontend state
+      }
+    }
+    // Clear Python results immediately so overlay disappears right away
+    const pyCopy = { ...pythonResults.value };
+    delete pyCopy[id];
+    pythonResults.value = pyCopy;
+    // Clear src to close MJPEG quickly
+    streamSrc.value[id] = '';
+    setTimeout(() => {
+      const copy = { ...streamSrc.value };
+      delete copy[id];
+      streamSrc.value = copy;
+      const sizesCopy = { ...streamSizes.value };
+      delete sizesCopy[id];
+      streamSizes.value = sizesCopy;
+    }, 150);
+  }
+
+  function onStreamToggle(tower) {
+    if (!tower?.id) return;
+    if (streamEnabled.value[tower.id]) {
+      refreshStream(tower);
+    } else {
+      stopStream(tower.id);
+    }
   }
 
   async function callNode(tower, path) {
@@ -806,14 +831,12 @@
 
 <style scoped>
   .stream-wrapper {
-    width: 100%;
-    background: #111;
-    border-radius: 8px;
-    min-height: 240px;
-    display: flex;
-    align-items: flex-start;
-    justify-content: flex-start;
     position: relative;
+    display: block;
+    width: 100%;
+    min-height: 240px; /* reserve space for stream when enabled */
+    background: transparent;
+    border-radius: 0;
   }
   .stream-image {
     max-width: 100%;
@@ -834,13 +857,17 @@
   }
   .bbox-label {
     position: absolute;
-    top: -18px;
-    left: 0;
+    top: 0;
+    left: 50%;
     background: rgba(233, 30, 99, 0.85);
     color: #fff;
     padding: 2px 6px;
     font-size: 11px;
     border-radius: 3px;
     white-space: nowrap;
+    transform: translate(
+      -50%,
+      calc(-100% - 1px)
+    ); /* center and lift above the box */
   }
 </style>

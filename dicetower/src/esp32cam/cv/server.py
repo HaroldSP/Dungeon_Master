@@ -24,7 +24,7 @@ app.add_middleware(
 
 # Загружаем модель при старте сервера
 # Используем raw string, чтобы путь на Windows не "съедал" backslash.
-model_path = r"C:\Users\gev\Desktop\Dungeon_Master\dicetower\src\esp32cam\cv\best.pt"
+model_path = r"C:\Users\gev\Desktop\Dungeon_Master\dicetower\src\esp32cam\cv\best_2.pt"
 
 if not os.path.exists(model_path):
     print(f"Предупреждение: Модель '{model_path}' не найдена.")
@@ -51,6 +51,43 @@ async def health():
         "status": "healthy",
         "model_loaded": model is not None
     }
+
+def _log_summary(tag: str, img, results, detections):
+    """Print sizes and best detection (class/conf/box)."""
+    # incoming size (decoded image)
+    try:
+        incoming_w, incoming_h = img.shape[1], img.shape[0]
+        incoming = f"{incoming_w}x{incoming_h}"
+    except Exception:
+        incoming = "unknown"
+
+    # inference size (model input)
+    inference = "unknown"
+    try:
+        if results and len(results) > 0:
+            r0 = results[0]
+            if hasattr(r0, "imgsz") and r0.imgsz is not None:
+                inference = f"{r0.imgsz[1]}x{r0.imgsz[0]}"
+            elif hasattr(r0, "orig_shape") and r0.orig_shape is not None:
+                ih, iw = r0.orig_shape[:2]
+                inference = f"{iw}x{ih}"
+    except Exception:
+        pass
+
+    # Best detection
+    best = None
+    if detections:
+        best = max(detections, key=lambda d: d.get("confidence", 0.0))
+
+    if best:
+        bbox = best.get("bbox", {})
+        box_str = f"x1={bbox.get('x1')},y1={bbox.get('y1')},w={bbox.get('width')},h={bbox.get('height')}"
+        top = f"{best.get('class','?')}@{best.get('confidence',0)} [{box_str}]"
+    else:
+        top = "none"
+
+    print(f"{tag}: incoming={incoming}, inference={inference}, count={len(detections)}, top={top}")
+
 
 @app.post("/detect")
 async def detect_dice(file: UploadFile = File(...)):
@@ -88,18 +125,6 @@ async def detect_dice(file: UploadFile = File(...)):
         
         # Запускаем детекцию
         results = model(img)
-        if results:
-            r0 = results[0]
-            try:
-                print(f"YOLO detect_best: incoming={img.shape[1]}x{img.shape[0]}, inference={r0.imgsz[1]}x{r0.imgsz[0]}")
-            except Exception:
-                pass
-        if results:
-            r0 = results[0]
-            try:
-                print(f"YOLO detect: incoming={img.shape[1]}x{img.shape[0]}, inference={r0.imgsz[1]}x{r0.imgsz[0]}")
-            except Exception:
-                pass
         
         # Обрабатываем результаты
         detected_numbers = []
@@ -134,6 +159,8 @@ async def detect_dice(file: UploadFile = File(...)):
         # Сортируем по уверенности (от большей к меньшей)
         detected_numbers.sort(key=lambda x: x["confidence"], reverse=True)
         
+        _log_summary("YOLO detect", img, results, detected_numbers)
+
         return JSONResponse(content={
             "success": True,
             "detected_numbers": detected_numbers,
@@ -213,12 +240,15 @@ async def detect_best_dice(file: UploadFile = File(...)):
                     }
         
         if best_detection is None:
+            _log_summary("YOLO detect_best", img, results, [])
             return JSONResponse(content={
                 "success": True,
                 "detected": False,
                 "message": "Числа не обнаружены"
             })
-        
+
+        _log_summary("YOLO detect_best", img, results, [best_detection])
+
         return JSONResponse(content={
             "success": True,
             "detected": True,

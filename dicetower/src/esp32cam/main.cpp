@@ -67,6 +67,7 @@ static IPAddress staIp;
 
 // Dedicated HTTP server for MJPEG stream
 static httpd_handle_t streamHttpd = nullptr;
+static volatile bool streamStopRequested = false;  // Flag to stop active stream
 
 // Camera settings (runtime adjustable)
 static int streamDelayMs = 1;  // Latency control
@@ -487,10 +488,18 @@ static esp_err_t streamHttpdHandler(httpd_req_t* req) {
     httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Camera not initialized");
     return ESP_FAIL;
   }
+  
+  // Reset stop flag when new stream starts
+  streamStopRequested = false;
+  
   httpd_resp_set_type(req, "multipart/x-mixed-replace; boundary=frame");
   httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
 
   while (true) {
+    // Check if stop was requested
+    if (streamStopRequested) {
+      break;
+    }
     camera_fb_t* fb = esp_camera_fb_get();
     if (!fb) {
       return ESP_FAIL;
@@ -994,6 +1003,13 @@ static void handleDetectionServer() {
   httpServer.send(405, "application/json", "{\"ok\":false,\"error\":\"method not allowed\"}");
 }
 
+// Stop the active MJPEG stream by setting a flag
+static void handleStreamStop() {
+  streamStopRequested = true;
+  addNoCacheAndCors();
+  httpServer.send(200, "application/json", "{\"ok\":true,\"message\":\"stream stop requested\"}");
+}
+
 static void startStreamServer() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.server_port = 81;
@@ -1093,6 +1109,8 @@ void setup() {
   httpServer.on("/external/detection", HTTP_OPTIONS, handleOptions);
   httpServer.on("/camera/snapshot", HTTP_GET, handleCameraSnapshot);
   httpServer.on("/camera/snapshot", HTTP_OPTIONS, handleOptions);
+  httpServer.on("/camera/stream/stop", HTTP_POST, handleStreamStop);
+  httpServer.on("/camera/stream/stop", HTTP_OPTIONS, handleOptions);
   httpServer.on("/provision", handleProvision);
   httpServer.on("/provision", HTTP_OPTIONS, handleOptions);
   httpServer.on("/wipe", handleWipe);
