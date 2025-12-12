@@ -114,6 +114,8 @@
     { path: '/', title: 'Карта', icon: 'mdi-map' },
     { path: '/monsters', title: 'Монстры', icon: 'mdi-skull' },
     { path: '/towers', title: 'Dice Towers', icon: 'mdi-lan-connect' },
+    { path: '/players', title: 'Players', icon: 'mdi-account-group' },
+    { path: '/spell-mapper', title: 'Spell Mapper', icon: 'mdi-book-open-variant' },
   ];
 
   // Stores

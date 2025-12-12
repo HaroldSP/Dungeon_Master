@@ -9,7 +9,7 @@ import SideNavigation from './components/layout/SideNavigation.vue'
       <AppHeader />
       <SideNavigation />
       
-      <v-main>
+      <v-main class="scrollable-main" style="overflow-y: auto; height: 100vh">
         <router-view />
       </v-main>
     </v-layout>
@@ -20,5 +20,15 @@ import SideNavigation from './components/layout/SideNavigation.vue'
 /* App-specific styles */
 .app-layout { 
   height: 100vh; 
+}
+
+/* Hide scrollbar but keep scrolling functionality */
+.scrollable-main {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE and Edge */
+}
+
+.scrollable-main::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Opera */
 }
 </style>

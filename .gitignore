@@ -35,3 +35,7 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+
+# Game data (player characters and monsters)
+frontend/src/data/players/
+frontend/src/data/monsters/
