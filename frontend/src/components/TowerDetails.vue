@@ -37,6 +37,29 @@
             </div>
           </div>
         </div>
+        <div
+          class="roll-mini-display"
+          v-if="primaryRoll"
+        >
+          <div class="roll-line">
+            <span
+              class="roll-value"
+              :class="rollColorClass(primaryRoll.value)"
+            >
+              {{ primaryRoll.value }}
+            </span>
+            <span class="roll-plus">
+              +{{ primaryRoll.mod >= 0 ? primaryRoll.mod : primaryRoll.mod }}
+            </span>
+            <span class="roll-total"> (= {{ primaryRoll.total }}) </span>
+          </div>
+          <div
+            v-if="currentSelection?.label"
+            class="roll-label"
+          >
+            {{ currentSelection.label }}
+          </div>
+        </div>
       </div>
       <div
         class="stats-column"
@@ -72,8 +95,62 @@
               class="ability-stats"
               :style="isMobile?.value ? { gap: '6px' } : null"
             >
-              <div class="modifier-circle">
-                {{ ability.mod ?? '—' }}
+              <div class="modifier-block">
+                <div class="modifier-circle">
+                  {{ ability.mod ?? '—' }}
+                </div>
+                <div class="ability-throws">
+                  <span
+                    class="throw-pill ability-throw-pill"
+                    :class="{
+                      'throw-pill--active': isThrowActive(
+                        'disadvantage',
+                        ability,
+                        { name: '__ability__', isAbilityCheck: true }
+                      ),
+                    }"
+                    @click="
+                      onThrowClick('disadvantage', ability, {
+                        name: '__ability__',
+                        isAbilityCheck: true,
+                        mod: ability.mod,
+                      })
+                    "
+                  ></span>
+                  <span
+                    class="throw-pill ability-throw-pill"
+                    :class="{
+                      'throw-pill--active': isThrowActive('normal', ability, {
+                        name: '__ability__',
+                        isAbilityCheck: true,
+                      }),
+                    }"
+                    @click="
+                      onThrowClick('normal', ability, {
+                        name: '__ability__',
+                        isAbilityCheck: true,
+                        mod: ability.mod,
+                      })
+                    "
+                  ></span>
+                  <span
+                    class="throw-pill ability-throw-pill"
+                    :class="{
+                      'throw-pill--active': isThrowActive(
+                        'advantage',
+                        ability,
+                        { name: '__ability__', isAbilityCheck: true }
+                      ),
+                    }"
+                    @click="
+                      onThrowClick('advantage', ability, {
+                        name: '__ability__',
+                        isAbilityCheck: true,
+                        mod: ability.mod,
+                      })
+                    "
+                  ></span>
+                </div>
               </div>
               <div class="score-box">
                 <div class="score-label">ЗНАЧЕНИЕ</div>
@@ -102,17 +179,41 @@
               <div class="throws-group">
                 <span
                   class="throw-pill"
+                  :class="{
+                    'throw-pill--active': isThrowActive(
+                      'disadvantage',
+                      ability,
+                      null
+                    ),
+                  }"
                   title="Disadvantage"
+                  @click="onThrowClick('disadvantage', ability, null)"
                   >D</span
                 >
                 <span
                   class="throw-pill"
+                  :class="{
+                    'throw-pill--active': isThrowActive(
+                      'normal',
+                      ability,
+                      null
+                    ),
+                  }"
                   title="Normal"
+                  @click="onThrowClick('normal', ability, null)"
                   >N</span
                 >
                 <span
                   class="throw-pill"
+                  :class="{
+                    'throw-pill--active': isThrowActive(
+                      'advantage',
+                      ability,
+                      null
+                    ),
+                  }"
                   title="Advantage"
+                  @click="onThrowClick('advantage', ability, null)"
                   >A</span
                 >
               </div>
@@ -154,17 +255,41 @@
                 <div class="throws-group">
                   <span
                     class="throw-pill"
+                    :class="{
+                      'throw-pill--active': isThrowActive(
+                        'disadvantage',
+                        ability,
+                        skill
+                      ),
+                    }"
                     title="Disadvantage"
+                    @click="onThrowClick('disadvantage', ability, skill)"
                     >D</span
                   >
                   <span
                     class="throw-pill"
+                    :class="{
+                      'throw-pill--active': isThrowActive(
+                        'normal',
+                        ability,
+                        skill
+                      ),
+                    }"
                     title="Normal"
+                    @click="onThrowClick('normal', ability, skill)"
                     >N</span
                   >
                   <span
                     class="throw-pill"
+                    :class="{
+                      'throw-pill--active': isThrowActive(
+                        'advantage',
+                        ability,
+                        skill
+                      ),
+                    }"
                     title="Advantage"
+                    @click="onThrowClick('advantage', ability, skill)"
                     >A</span
                   >
                 </div>
@@ -207,7 +332,7 @@
 </template>
 
 <script setup>
-  import { computed } from 'vue';
+  import { ref, computed, watch } from 'vue';
   import { useDisplay } from 'vuetify';
 
   const props = defineProps({
@@ -235,6 +360,10 @@
       type: Number,
       default: null,
     },
+    rollResetKey: {
+      type: Number,
+      default: 0,
+    },
     statusLoading: {
       type: Boolean,
       default: false,
@@ -249,6 +378,97 @@
   const thresholds = display.thresholds;
   const width = display.width;
   const isMobile = display.mobile;
+
+  const currentSelection = ref(null);
+  const activeThrowKey = ref(null);
+
+  const emit = defineEmits([
+    'refresh',
+    'status',
+    'whoami',
+    'detect',
+    'stream-load',
+    'start-roll',
+    'stop-roll',
+  ]);
+
+  function selectModifierFromSave(ability) {
+    if (!ability) return;
+    currentSelection.value = {
+      label: `${ability.label} Спасбросок`,
+      mod: Number(ability.save ?? 0) || 0,
+    };
+  }
+
+  function selectModifierFromSkill(ability, skill) {
+    if (!skill) return;
+    currentSelection.value = {
+      label: skill.isAbilityCheck
+        ? `${ability.label} проверка`
+        : skill.name || ability.label || '',
+      mod: Number(skill.mod ?? 0) || 0,
+    };
+  }
+
+  function makeThrowKey(mode, ability, skill) {
+    const base = ability?.key || ability?.label || 'ability';
+    const skillPart = skill?.isAbilityCheck ? '__ability__' : skill?.name || '';
+    return `${base}::${skillPart}::${mode}`;
+  }
+
+  function isThrowActive(mode, ability, skill) {
+    return activeThrowKey.value === makeThrowKey(mode, ability, skill);
+  }
+
+  function onThrowClick(mode, ability, skill) {
+    const key = makeThrowKey(mode, ability, skill);
+    if (activeThrowKey.value === key) {
+      // Toggle off
+      activeThrowKey.value = null;
+      currentSelection.value = null;
+      emit('stop-roll');
+      return;
+    }
+
+    activeThrowKey.value = key;
+
+    if (skill) {
+      selectModifierFromSkill(ability, skill);
+    } else {
+      selectModifierFromSave(ability);
+    }
+    emit('start-roll', {
+      mode,
+      abilityKey: ability?.key || null,
+      abilityLabel: ability?.label || '',
+      skillName: skill?.name || null,
+    });
+  }
+
+  function rollColorClass(value) {
+    if (value === 1) return 'roll-value--fail';
+    if (value === 20) return 'roll-value--crit';
+    return '';
+  }
+
+  const primaryRoll = computed(() => {
+    if (!activeThrowKey.value) return null;
+    if (!props.topDetection) return null;
+    const raw = props.topDetection.value ?? props.topDetection.class ?? null;
+    const value = Number(raw);
+    if (!Number.isFinite(value)) return null;
+    const mod = currentSelection.value?.mod ?? 0;
+    const total = value + mod;
+    return { value, mod, total };
+  });
+
+  watch(
+    () => props.rollResetKey,
+    () => {
+      activeThrowKey.value = null;
+      currentSelection.value = null;
+    }
+  );
 
   const displayedAbilities = computed(() => {
     const src =
@@ -280,8 +500,6 @@
     }
     return src; // 4+ cols natural
   });
-
-  defineEmits(['refresh', 'status', 'whoami', 'detect', 'stream-load']);
 </script>
 
 <style scoped>
@@ -371,9 +589,16 @@
 
   .ability-stats {
     display: flex;
+    justify-content: flex-start;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .modifier-block {
+    display: flex;
+    flex-direction: column;
     justify-content: space-between;
     align-items: center;
-    gap: 8px;
   }
 
   .modifier-circle {
@@ -387,6 +612,11 @@
     font-weight: bold;
     font-size: 0.85rem;
     flex-shrink: 0;
+  }
+
+  .ability-throws {
+    display: flex;
+    gap: 3px;
   }
 
   .score-box {
@@ -491,5 +721,61 @@
     font-weight: 600;
     color: rgba(var(--v-theme-on-surface), 0.8);
     background: rgba(var(--v-theme-surface), 0.4);
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease,
+      color 0.15s ease;
+  }
+
+  .ability-throw-pill {
+    width: 14px;
+    height: 14px;
+    min-width: 14px;
+    min-height: 14px;
+    padding: 0;
+    border-radius: 50%;
+    border-width: 1px;
+    background: transparent;
+    font-size: 0;
+  }
+  .throw-pill--active {
+    border-color: rgba(var(--v-theme-primary), 0.9);
+    background: rgba(var(--v-theme-primary), 0.2);
+    color: rgba(var(--v-theme-primary), 1);
+  }
+
+  .roll-mini-display {
+    width: 320px;
+    height: 120px;
+    max-width: 320px;
+    background: rgba(0, 0, 0, 0.7);
+    padding: 8px 10px;
+    border-radius: 4px;
+    font-size: 13px;
+    color: #fff;
+    margin-top: 8px;
+    box-sizing: border-box;
+  }
+  .roll-line {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+  }
+  .roll-value {
+    font-weight: 700;
+  }
+  .roll-value--crit {
+    color: #4caf50;
+  }
+  .roll-value--fail {
+    color: #f44336;
+  }
+  .roll-plus,
+  .roll-total {
+    opacity: 0.9;
+  }
+  .roll-label {
+    margin-top: 2px;
+    font-size: 12px;
+    opacity: 0.8;
   }
 </style>

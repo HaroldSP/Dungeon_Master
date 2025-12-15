@@ -666,7 +666,7 @@ static void handleDiceCaptureTest() {
   if (fb->format == PIXFORMAT_JPEG) {
     detectDiceToTestServer(fb->buf, fb->len, testUrl, detection);
   }
-
+  
   esp_camera_fb_return(fb);
   lastDetection = detection;
   lastDetectionTimestamp = millis();

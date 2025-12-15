@@ -129,7 +129,19 @@
                 v-if="expanded[t.id]"
                 class="mt-3"
               >
-                <div class="text-body-2 mb-1">Live Stream</div>
+                <div class="d-flex align-center justify-space-between mb-1">
+                  <div class="text-body-2">Live Stream</div>
+                  <div class="d-flex align-center text-caption">
+                    <span class="mr-2">Results auto clear</span>
+                    <v-switch
+                      v-model="autoClearEnabled[t.id]"
+                      hide-details
+                      inset
+                      density="compact"
+                      class="results-auto-clear-switch"
+                    />
+                  </div>
+                </div>
                 <TowerDetails
                   :stream-src="streamSrc[t.id]"
                   :bbox-style="getPyBox(t)"
@@ -137,6 +149,7 @@
                   :ability-placeholders="abilityPlaceholders"
                   :player-stats="getPlayerStatsForTower(t)"
                   :prof-bonus="getPlayerProfBonusForTower(t)"
+                  :roll-reset-key="rollResetKey[t.id] || 0"
                   :status-loading="loading[`${t.id}-status`]"
                   :detect-loading="loading[`${t.id}-py`]"
                   @stream-load="onStreamLoad(t, $event)"
@@ -144,6 +157,8 @@
                   @status="pingStatus(t)"
                   @whoami="whoamiEsp(t)"
                   @detect="detectViaPython(t)"
+                  @start-roll="startRoll(t, $event)"
+                  @stop-roll="stopRoll(t)"
                 />
 
                 <v-divider class="my-3" />
@@ -437,6 +452,9 @@
   const expanded = ref({});
   const streamEnabled = ref({});
   const pythonResults = ref({});
+  const rollSessions = ref({});
+  const autoClearEnabled = ref({});
+  const rollResetKey = ref({});
   const abilityPlaceholders = [
     { key: 'str', label: 'СИЛА', skills: ['Атлетика'] },
     {
@@ -795,6 +813,9 @@
     if (next) {
       // Opening: enable stream and refresh
       streamEnabled.value[tower.id] = true;
+      if (autoClearEnabled.value[tower.id] === undefined) {
+        autoClearEnabled.value[tower.id] = true;
+      }
       refreshStream(tower);
     } else {
       // Closing: turn off stream and stop on ESP
@@ -989,6 +1010,129 @@
       width: `${det.bbox.width * scaleX}px`,
       height: `${det.bbox.height * scaleY}px`,
     };
+  }
+
+  function clearRollSession(id) {
+    const sessions = { ...rollSessions.value };
+    const session = sessions[id];
+    if (session?.timerId) {
+      clearTimeout(session.timerId);
+    }
+    delete sessions[id];
+    rollSessions.value = sessions;
+  }
+
+  function stopRoll(tower) {
+    if (!tower?.id) return;
+    const id = tower.id;
+    clearRollSession(id);
+    // Clear last Python result so bbox and label disappear when user cancels roll
+    const pyCopy = { ...pythonResults.value };
+    delete pyCopy[id];
+    pythonResults.value = pyCopy;
+  }
+
+  async function runRollLoop(tower) {
+    if (!tower?.id) return;
+    const id = tower.id;
+    const session = rollSessions.value[id];
+    if (!session || !session.active) return;
+
+    const detectUrl = (tower?.pyServerUrl || pyServerUrl || '')
+      .toString()
+      .trim();
+    const snapUrl = tower?.apiBase ? `${tower.apiBase}/camera/snapshot` : '';
+    if (!detectUrl || !snapUrl) {
+      clearRollSession(id);
+      return;
+    }
+
+    try {
+      const snapRes = await fetch(snapUrl, { cache: 'no-store' });
+      if (!snapRes.ok) {
+        clearRollSession(id);
+        return;
+      }
+      const blob = await snapRes.blob();
+      const fd = new FormData();
+      fd.append('file', new File([blob], 'frame.jpg', { type: 'image/jpeg' }));
+      const res = await fetch(detectUrl, { method: 'POST', body: fd });
+      if (!res.ok) {
+        clearRollSession(id);
+        return;
+      }
+      const data = await res.json();
+      pythonResults.value[id] = normalizePythonResult(data);
+
+      const det = getPyTopDet(pythonResults.value[id]);
+      const rawVal = det?.value ?? det?.class;
+      const num = Number(rawVal);
+      const now = Date.now();
+
+      if (Number.isFinite(num)) {
+        let updated = { ...session };
+        if (updated.stableValue === num) {
+          if (!updated.stableSince) {
+            updated.stableSince = now;
+          } else if (now - updated.stableSince >= 1000) {
+            // Stable for at least 1s → finalize
+            updated.active = false;
+            rollSessions.value = { ...rollSessions.value, [id]: updated };
+            // Auto-clear after 3s if enabled
+            if (autoClearEnabled.value[id]) {
+              setTimeout(() => {
+                const towerCurrent = towers.value.find(t => t.id === id);
+                if (towerCurrent) {
+                  stopRoll(towerCurrent);
+                  // bump reset key so child component clears its active button state
+                  const rk = { ...rollResetKey.value };
+                  rk[id] = (rk[id] || 0) + 1;
+                  rollResetKey.value = rk;
+                }
+              }, 3000);
+            }
+            return;
+          }
+        } else {
+          updated.stableValue = num;
+          updated.stableSince = now;
+        }
+        rollSessions.value = { ...rollSessions.value, [id]: updated };
+      }
+    } catch (e) {
+      console.error('roll loop error', e);
+      clearRollSession(id);
+      return;
+    }
+
+    // Schedule next poll if still active
+    const nextSession = rollSessions.value[id];
+    if (nextSession && nextSession.active) {
+      const timerId = setTimeout(() => runRollLoop(tower), 400);
+      rollSessions.value = {
+        ...rollSessions.value,
+        [id]: { ...nextSession, timerId },
+      };
+    }
+  }
+
+  function startRoll(tower, payload) {
+    if (!tower?.id) return;
+    const id = tower.id;
+    clearRollSession(id);
+    const session = {
+      mode: payload?.mode || 'normal',
+      abilityKey: payload?.abilityKey || null,
+      abilityLabel: payload?.abilityLabel || '',
+      skillName: payload?.skillName || null,
+      startedAt: Date.now(),
+      stableValue: null,
+      stableSince: null,
+      active: true,
+      timerId: null,
+    };
+    rollSessions.value = { ...rollSessions.value, [id]: session };
+    runRollLoop(tower);
   }
 
   async function pyHealthEdit() {
@@ -1233,5 +1377,10 @@
     font-weight: 600;
     color: rgba(var(--v-theme-on-surface), 0.8);
     background: rgba(var(--v-theme-surface), 0.4);
+  }
+
+  .results-auto-clear-switch {
+    transform: scale(0.8);
+    transform-origin: right center;
   }
 </style>
