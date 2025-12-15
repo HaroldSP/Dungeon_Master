@@ -1,8 +1,23 @@
 <template>
   <div class="tower-details">
     <div class="stream-and-stats d-flex flex-wrap align-start ga-3">
-      <div class="stream-column">
-        <div class="stream-wrapper">
+      <div
+        class="stream-column"
+        :style="
+          isMobile?.value
+            ? {
+                flex: '1 1 100%',
+                maxWidth: '100%',
+                minWidth: '0',
+                padding: '0',
+              }
+            : null
+        "
+      >
+        <div
+          class="stream-wrapper"
+          :style="isMobile?.value ? { width: '100%', maxWidth: '100%' } : null"
+        >
           <img
             v-if="streamSrc"
             :key="streamSrc"
@@ -23,25 +38,50 @@
           </div>
         </div>
       </div>
-      <div class="stats-column">
-        <div class="abilities-grid">
+      <div
+        class="stats-column"
+        :style="
+          isMobile?.value
+            ? {
+                flex: '1 1 100%',
+                minWidth: '0',
+                maxWidth: '100%',
+                padding: '0',
+              }
+            : null
+        "
+      >
+        <div
+          class="abilities-grid"
+          :style="
+            isMobile?.value
+              ? { width: '100%', 'grid-template-columns': '1fr', gap: '8px' }
+              : { width: '100%' }
+          "
+        >
           <div
             v-for="ability in displayedAbilities"
             :key="ability.key"
             class="ability-box"
+            :style="isMobile?.value ? { padding: '8px' } : null"
           >
             <div class="ability-header">
               <div class="ability-name">{{ ability.label }}</div>
             </div>
-            <div class="ability-stats">
-              <div class="modifier-circle">—</div>
+            <div
+              class="ability-stats"
+              :style="isMobile?.value ? { gap: '6px' } : null"
+            >
+              <div class="modifier-circle">
+                {{ ability.mod ?? '—' }}
+              </div>
               <div class="score-box">
                 <div class="score-label">ЗНАЧЕНИЕ</div>
-                <div class="score-value">—</div>
+                <div class="score-value">{{ ability.score ?? '—' }}</div>
               </div>
             </div>
             <div class="skill-row save-row">
-              <span class="skill-modifier">—</span>
+              <span class="skill-modifier">{{ ability.save ?? '—' }}</span>
               <span class="skill-name">Спасбросок</span>
               <div class="throws-group">
                 <span
@@ -67,11 +107,11 @@
             >
               <div
                 v-for="skill in ability.skills"
-                :key="skill"
+                :key="skill.name || skill"
                 class="skill-row"
               >
-                <span class="skill-modifier">—</span>
-                <span class="skill-name">{{ skill }}</span>
+                <span class="skill-modifier">{{ skill.mod ?? '—' }}</span>
+                <span class="skill-name">{{ skill.name || skill }}</span>
                 <div class="throws-group">
                   <span
                     class="throw-pill"
@@ -129,6 +169,7 @@
 
 <script setup>
   import { computed } from 'vue';
+  import { useDisplay } from 'vuetify';
 
   const props = defineProps({
     streamSrc: {
@@ -147,6 +188,10 @@
       type: Array,
       default: () => [],
     },
+    playerStats: {
+      type: Array,
+      default: null,
+    },
     statusLoading: {
       type: Boolean,
       default: false,
@@ -157,18 +202,40 @@
     },
   });
 
+  const display = useDisplay();
+  const thresholds = display.thresholds;
+  const width = display.width;
+  const isMobile = display.mobile;
+
   const displayedAbilities = computed(() => {
-    const src = props.abilityPlaceholders || [];
-    // When there are exactly 2 columns, use column-major order (1,4),(2,5),(3,6)
-    // Else, keep natural order.
-    // We approximate by number of items: if <=4, keep natural (likely 2 cols or less); if 6 and layout likely 3 cols, keep natural.
-    if (src.length === 6) {
-      return src;
+    const src =
+      (props.playerStats && props.playerStats.length
+        ? props.playerStats
+        : props.abilityPlaceholders) || [];
+
+    // 4 view types based on Vuetify breakpoints (one-col included):
+    // < md: 1-col (natural)
+    // md–lg: 2-col (1,4),(2,5),(3,6)
+    // lg–xl: 3-col (1,2,3),(4,5,6)
+    // >= xl: natural (1..6)
+    if (isMobile?.value) return src; // force 1-col on mobile
+
+    const w = width?.value ?? 1920;
+    const md = thresholds?.value?.md ?? 960;
+    const lg = thresholds?.value?.lg ?? 1280;
+    const xl = thresholds?.value?.xl ?? 1920;
+
+    if (w < md) {
+      return src; // 1-col natural
     }
-    if (src.length > 0) {
-      return src;
+    if (w >= md && w < lg) {
+      const order = [0, 3, 1, 4, 2, 5]; // 2-col
+      return order.map(i => src[i]).filter(Boolean);
     }
-    return [];
+    if (w >= lg && w < xl) {
+      return src; // 3-col natural
+    }
+    return src; // 4+ cols natural
   });
 
   defineEmits(['refresh', 'status', 'whoami', 'detect', 'stream-load']);
@@ -185,8 +252,8 @@
     border-radius: 0;
   }
   .stream-image {
-    width: 320px;
-    max-width: 320px;
+    width: 100%;
+    max-width: 100%;
     max-height: 240px;
     height: auto;
     border-radius: 6px;
@@ -231,13 +298,13 @@
 
   .stats-column {
     flex: 1 1 0;
-    min-width: 360px;
+    min-width: 250px;
     padding: 0;
   }
 
   .abilities-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 12px;
   }
 

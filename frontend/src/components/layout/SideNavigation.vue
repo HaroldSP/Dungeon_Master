@@ -99,10 +99,11 @@
 </template>
 
 <script setup>
-  import { ref, computed } from 'vue';
+  import { computed } from 'vue';
   import { storeToRefs } from 'pinia';
   import { useMonsterStore } from '../../stores/monsterStore';
   import { useMapStore } from '../../stores/mapStore';
+  import { useUiStore } from '../../stores/uiStore';
 
   // Constants
   const SIDEBAR_WIDTHS = {
@@ -115,15 +116,20 @@
     { path: '/monsters', title: 'Монстры', icon: 'mdi-skull' },
     { path: '/towers', title: 'Dice Towers', icon: 'mdi-lan-connect' },
     { path: '/players', title: 'Players', icon: 'mdi-account-group' },
-    { path: '/spell-mapper', title: 'Spell Mapper', icon: 'mdi-book-open-variant' },
+    {
+      path: '/spell-mapper',
+      title: 'Spell Mapper',
+      icon: 'mdi-book-open-variant',
+    },
   ];
 
   // Stores
   const monsterStore = useMonsterStore();
   const mapStore = useMapStore();
+  const uiStore = useUiStore();
 
   // Reactive data
-  const isMinimized = ref(false);
+  const { drawerMinimized: isMinimized } = storeToRefs(uiStore);
 
   // Computed
   const { tokens } = storeToRefs(mapStore);
@@ -139,6 +145,6 @@
 
   // Methods
   const toggleMinimize = () => {
-    isMinimized.value = !isMinimized.value;
+    uiStore.toggleDrawer();
   };
 </script>
