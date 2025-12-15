@@ -134,7 +134,10 @@
                   <div class="d-flex align-center text-caption">
                     <span class="mr-2">Results auto clear</span>
                     <v-switch
-                      v-model="autoClearEnabled[t.id]"
+                      :model-value="uiStore.resultsAutoClear[t.id] !== false"
+                      @update:model-value="
+                        val => uiStore.setResultsAutoClear(t.id, val)
+                      "
                       hide-details
                       inset
                       density="compact"
@@ -431,6 +434,7 @@
 <script setup>
   import { ref, computed, onMounted, watch } from 'vue';
   import { useTowerStore } from '../stores/towerStore';
+  import { useUiStore } from '../stores/uiStore';
   import { storeToRefs } from 'pinia';
   import TowerDetails from './TowerDetails.vue';
 
@@ -444,6 +448,7 @@
   });
 
   const towerStore = useTowerStore();
+  const uiStore = useUiStore();
   const { towers } = storeToRefs(towerStore);
 
   const loading = ref({});
@@ -453,7 +458,6 @@
   const streamEnabled = ref({});
   const pythonResults = ref({});
   const rollSessions = ref({});
-  const autoClearEnabled = ref({});
   const rollResetKey = ref({});
   const abilityPlaceholders = [
     { key: 'str', label: 'СИЛА', skills: ['Атлетика'] },
@@ -813,9 +817,6 @@
     if (next) {
       // Opening: enable stream and refresh
       streamEnabled.value[tower.id] = true;
-      if (autoClearEnabled.value[tower.id] === undefined) {
-        autoClearEnabled.value[tower.id] = true;
-      }
       refreshStream(tower);
     } else {
       // Closing: turn off stream and stop on ESP
@@ -1078,8 +1079,8 @@
             // Stable for at least 1s → finalize
             updated.active = false;
             rollSessions.value = { ...rollSessions.value, [id]: updated };
-            // Auto-clear after 3s if enabled
-            if (autoClearEnabled.value[id]) {
+            // Auto-clear after 3s if enabled (default ON; only disabled when explicitly false)
+            if (uiStore.resultsAutoClear[id] !== false) {
               setTimeout(() => {
                 const towerCurrent = towers.value.find(t => t.id === id);
                 if (towerCurrent) {
