@@ -2,7 +2,23 @@ import { defineStore } from 'pinia';
 import { ref, computed, watch } from 'vue';
 
 export const useTowerStore = defineStore('towers', () => {
-  // tower: { id, playerName, towerName, apiBase, streamUrl, online, lastSeenAt, lastStatus, lastDetection }
+  // tower: {
+  //   id,
+  //   playerName,
+  //   playerPath,
+  //   towerName,
+  //   apiBase,
+  //   streamUrl,
+  //   nodemcuApiBase,
+  //   pyServerUrl,
+  //   online,
+  //   lastSeenAt,
+  //   lastStatus,
+  //   lastDetection,
+  //   lastStaIp,
+  //   lastApIp,
+  //   playerStats
+  // }
   const towers = ref([]);
   const count = computed(() => towers.value.length);
 
@@ -22,13 +38,19 @@ export const useTowerStore = defineStore('towers', () => {
     const item = {
       id,
       playerName: partial.playerName || 'Player',
+      playerPath: partial.playerPath || '',
       towerName: partial.towerName || `Tower ${count.value + 1}`,
       apiBase: partial.apiBase || '',
       streamUrl: partial.streamUrl || '',
+      nodemcuApiBase: partial.nodemcuApiBase || '',
+      pyServerUrl: partial.pyServerUrl || '',
       online: partial.online || false,
       lastSeenAt: nowIso,
       lastStatus: null,
       lastDetection: null,
+      lastStaIp: partial.lastStaIp || '',
+      lastApIp: partial.lastApIp || '',
+      playerStats: partial.playerStats || null,
     };
     towers.value.push(item);
     return item;

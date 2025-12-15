@@ -135,6 +135,8 @@
                   :bbox-style="getPyBox(t)"
                   :top-detection="getPyTopDet(pythonResults[t.id])"
                   :ability-placeholders="abilityPlaceholders"
+                  :player-stats="getPlayerStatsForTower(t)"
+                  :prof-bonus="getPlayerProfBonusForTower(t)"
                   :status-loading="loading[`${t.id}-status`]"
                   :detect-loading="loading[`${t.id}-py`]"
                   @stream-load="onStreamLoad(t, $event)"
@@ -237,13 +239,6 @@
                 clearable
                 hint="Select a player JSON"
                 persistent-hint
-                class="mb-2"
-              />
-              <v-text-field
-                v-model="editForm.playerName"
-                label="Player name (override)"
-                variant="outlined"
-                density="comfortable"
                 class="mb-2"
               />
             </v-col>
@@ -472,6 +467,36 @@
       skills: ['Обман', 'Запугивание', 'Выступление', 'Убеждение'],
     },
   ];
+
+  const abilityOrder = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
+  const abilityNames = {
+    str: 'СИЛА',
+    dex: 'ЛОВКОСТЬ',
+    con: 'ТЕЛОСЛОЖЕНИЕ',
+    int: 'ИНТЕЛЛЕКТ',
+    wis: 'МУДРОСТЬ',
+    cha: 'ХАРИЗМА',
+  };
+  const skillNames = {
+    athletics: 'Атлетика',
+    acrobatics: 'Акробатика',
+    'sleight of hand': 'Ловкость рук',
+    stealth: 'Скрытность',
+    arcana: 'Магия',
+    history: 'История',
+    investigation: 'Анализ',
+    nature: 'Природа',
+    religion: 'Религия',
+    'animal handling': 'Уход за животными',
+    insight: 'Проницательность',
+    medicine: 'Медицина',
+    perception: 'Восприятие',
+    survival: 'Выживание',
+    deception: 'Обман',
+    intimidation: 'Запугивание',
+    performance: 'Выступление',
+    persuasion: 'Убеждение',
+  };
   const editDialog = ref(false);
   const editPyStatus = ref('');
   const editForm = ref({
@@ -496,6 +521,132 @@
     towers.value.find(t => t.id === editForm.value.id)
   );
 
+  function getAbilityModifier(player, abilityKey) {
+    const score = player.stats?.[abilityKey]?.score;
+    if (!score) return null;
+    return Math.floor((score - 10) / 2);
+  }
+
+  function isSaveProficient(player, abilityKey) {
+    return (
+      player.saves?.[abilityKey]?.isProf === true ||
+      player.saves?.[abilityKey]?.isProf === 1
+    );
+  }
+
+  function getSaveModifier(player, abilityKey) {
+    const saveData = player.saves?.[abilityKey];
+    if (
+      saveData &&
+      saveData.customModifier !== undefined &&
+      saveData.customModifier !== null
+    ) {
+      return saveData.customModifier;
+    }
+    const baseMod = getAbilityModifier(player, abilityKey) ?? 0;
+    const profBonus = player.profBonus ?? player.proficiency ?? 0;
+    if (isSaveProficient(player, abilityKey)) {
+      return baseMod + profBonus;
+    }
+    return baseMod;
+  }
+
+  function isSkillProficient(skill) {
+    const v = skill?.isProf;
+    return v === true || v === 1 || v === 2 || v === '1' || v === '2';
+  }
+
+  function getSkillModifier(player, skill) {
+    const baseStat = skill?.baseStat;
+    if (!baseStat) return null;
+    const baseMod = getAbilityModifier(player, baseStat) ?? 0;
+    const profBonus = player.profBonus ?? player.proficiency ?? 0;
+
+    // Custom modifier always wins
+    if (skill?.customModifier !== undefined && skill?.customModifier !== null) {
+      return skill.customModifier;
+    }
+
+    let totalMod = baseMod;
+    const v = skill?.isProf;
+    if (v === 2 || v === '2') {
+      // Expertise: double proficiency
+      totalMod += 2 * profBonus;
+    } else if (v === 1 || v === '1' || v === true) {
+      // Normal proficiency
+      totalMod += profBonus;
+    }
+    return totalMod;
+  }
+
+  function getSkillsForAbility(player, abilityKey) {
+    if (!player.skills) return {};
+    const result = {};
+    for (const [skillKey, skill] of Object.entries(player.skills)) {
+      if (skill?.baseStat === abilityKey) {
+        result[skillKey] = skill;
+      }
+    }
+    return result;
+  }
+
+  function getPlayerStatsForTower(tower) {
+    if (!tower?.playerPath) return null;
+    const entry = players.value.find(p => p.value === tower.playerPath);
+    const player = entry?.raw;
+    if (!player) return null;
+
+    return abilityOrder.map(key => {
+      const label = abilityNames[key] || key.toUpperCase();
+      const score = player.stats?.[key]?.score ?? null;
+      const mod = getAbilityModifier(player, key);
+      const save = getSaveModifier(player, key);
+      const saveData = player.saves?.[key];
+      const saveCustom =
+        saveData &&
+        saveData.customModifier !== undefined &&
+        saveData.customModifier !== null;
+      const skillsObj = getSkillsForAbility(player, key);
+      const skills = Object.entries(skillsObj).map(([skillKey, skill]) => {
+        const mod = getSkillModifier(player, skill);
+        const rawProf = skill.isProf;
+        const prof = isSkillProficient(skill);
+        const isExpert = rawProf === 2 || rawProf === '2';
+        const isCustom =
+          skill.customModifier !== undefined && skill.customModifier !== null;
+        return {
+          name: skillNames[skillKey] || skillKey,
+          mod,
+          isProf: prof,
+          isExpert,
+          isCustom,
+        };
+      });
+      return {
+        key,
+        label,
+        score,
+        mod,
+        save,
+        saveProf: isSaveProficient(player, key),
+        saveCustom,
+        skills,
+      };
+    });
+  }
+
+  function getPlayerProfBonusForTower(tower) {
+    if (!tower?.playerPath) return null;
+    const entry = players.value.find(p => p.value === tower.playerPath);
+    if (!entry) return null;
+    // Prefer normalized profBonus stored on entry; fall back to raw data if present.
+    if (entry.profBonus !== undefined && entry.profBonus !== null) {
+      return entry.profBonus;
+    }
+    const raw = entry.raw || {};
+    return raw.proficiency ?? null;
+  }
+
   onMounted(async () => {
     try {
       const mods = import.meta.glob('/src/data/players/**/*.json', {
@@ -512,7 +663,12 @@
           parsed?.info?.playerName?.value ||
           parsed?.info?.name?.value ||
           `Player ${idx + 1}`;
-        return { value: path, title: name, raw: parsed };
+        return {
+          value: path,
+          title: name,
+          raw: parsed,
+          profBonus: parsed?.proficiency ?? null,
+        };
       });
     } catch (e) {
       console.error('load players failed', e);
@@ -522,14 +678,13 @@
   watch(
     editSelectedPlayer,
     val => {
-      if (val && !editForm.value.playerName) {
-        editForm.value.playerName =
-          val.title ||
-          val.raw?.name?.value ||
-          val.raw?.info?.playerName?.value ||
-          val.raw?.info?.name?.value ||
-          '';
-      }
+      if (!val) return;
+      editForm.value.playerName =
+        val.title ||
+        val.raw?.name?.value ||
+        val.raw?.info?.playerName?.value ||
+        val.raw?.info?.name?.value ||
+        '';
     },
     { immediate: false }
   );
@@ -741,6 +896,7 @@
       nodemcuApiBase: tower.nodemcuApiBase || '',
       pyServerUrl:
         tower.pyServerUrl || pyServerUrl || 'http://localhost:8003/detect',
+      playerPath: tower.playerPath || '',
     };
     editSelectedPlayer.value = null;
     editPyStatus.value = '';
@@ -761,6 +917,8 @@
     towerStore.addOrUpdateTower({
       id: editForm.value.id,
       playerName: editForm.value.playerName || selectedName,
+      playerPath:
+        editSelectedPlayer.value?.value || editForm.value.playerPath || '',
       towerName: editForm.value.towerName,
       apiBase: editForm.value.apiBase,
       streamUrl: editForm.value.streamUrl,

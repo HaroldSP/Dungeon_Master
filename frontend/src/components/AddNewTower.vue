@@ -41,13 +41,6 @@
                   hint="Select a player JSON"
                   persistent-hint
                 />
-                <v-text-field
-                  v-model="playerName"
-                  label="Player name (override)"
-                  variant="outlined"
-                  density="comfortable"
-                  class="mt-2"
-                />
               </v-col>
             </v-row>
           </v-card-text>
@@ -641,12 +634,15 @@
     const streamUrl = espStreamUrl.value?.trim();
     const nodeBase = nodemcuApiBase.value?.trim();
     const id = `${towerNumber.value || 1}-${Date.now()}`;
+    const sel = selectedPlayer.value;
+    const playerPath = sel?.value || '';
     towerStore.addOrUpdateTower({
       id,
       playerName:
         playerName.value ||
         getSelectedPlayerName() ||
         `Player ${towerNumber.value || 1}`,
+      playerPath,
       towerName: towerName.value || `Tower ${towerNumber.value || 1}`,
       apiBase,
       streamUrl,

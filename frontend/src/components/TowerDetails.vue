@@ -81,7 +81,23 @@
               </div>
             </div>
             <div class="skill-row save-row">
-              <span class="skill-modifier">{{ ability.save ?? '—' }}</span>
+              <span
+                class="prof-marker"
+                :class="{
+                  'prof-filled': ability.saveProf,
+                }"
+              >
+                <span
+                  v-if="ability.saveProf"
+                  class="prof-icon prof-dot"
+                ></span>
+              </span>
+              <span
+                class="skill-modifier"
+                :class="{ 'skill-mod-custom': ability.saveCustom }"
+              >
+                {{ ability.save ?? '—' }}
+              </span>
               <span class="skill-name">Спасбросок</span>
               <div class="throws-group">
                 <span
@@ -110,7 +126,30 @@
                 :key="skill.name || skill"
                 class="skill-row"
               >
-                <span class="skill-modifier">{{ skill.mod ?? '—' }}</span>
+                <span
+                  class="prof-marker"
+                  :class="{
+                    'prof-filled': skill.isProf && !skill.isExpert,
+                    'prof-expert': skill.isExpert,
+                  }"
+                >
+                  <span
+                    v-if="skill.isExpert"
+                    class="prof-icon prof-star"
+                  >
+                    ★
+                  </span>
+                  <span
+                    v-else-if="skill.isProf"
+                    class="prof-icon prof-dot"
+                  ></span>
+                </span>
+                <span
+                  class="skill-modifier"
+                  :class="{ 'skill-mod-custom': skill.isCustom }"
+                >
+                  {{ skill.mod ?? '—' }}
+                </span>
                 <span class="skill-name">{{ skill.name || skill }}</span>
                 <div class="throws-group">
                   <span
@@ -190,6 +229,10 @@
     },
     playerStats: {
       type: Array,
+      default: null,
+    },
+    profBonus: {
+      type: Number,
       default: null,
     },
     statusLoading: {
@@ -382,10 +425,44 @@
     margin-top: 8px;
   }
 
+  .prof-marker {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 1px solid rgba(var(--v-theme-on-surface), 0.5);
+    margin-right: 4px;
+  }
+  .prof-filled {
+    border-color: rgba(var(--v-theme-on-surface), 0.9);
+  }
+  .prof-expert {
+    border-color: rgba(var(--v-theme-primary), 0.95);
+  }
+  .prof-icon {
+    display: inline-block;
+    line-height: 1;
+  }
+  .prof-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #fff;
+  }
+  .prof-star {
+    font-size: 0.6rem;
+    color: #fff;
+  }
+
   .skill-modifier {
     min-width: 28px;
     text-align: right;
     font-weight: 500;
+  }
+  .skill-mod-custom {
+    color: #6ec1ff;
   }
 
   .skill-name {
