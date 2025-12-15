@@ -908,6 +908,9 @@
       editDialog.value = false;
       return;
     }
+    // Remember previous tower state before updating, to detect real changes
+    const prevTower = currentEditTower.value;
+    const prevStreamUrl = prevTower?.streamUrl || '';
     const selectedName =
       editSelectedPlayer.value?.title ||
       editSelectedPlayer.value?.raw?.name?.value ||
@@ -925,9 +928,12 @@
       nodemcuApiBase: editForm.value.nodemcuApiBase,
       pyServerUrl: editForm.value.pyServerUrl,
     });
-    // If we are editing the currently expanded tower, refresh its stream URL
-    if (expanded.value[editForm.value.id] && editForm.value.streamUrl) {
-      streamSrc.value[editForm.value.id] = editForm.value.streamUrl;
+    // Only touch the stream if the URL actually changed; this avoids
+    // reopening the MJPEG stream when we just change the player.
+    const newStreamUrl = editForm.value.streamUrl || '';
+    const streamChanged = newStreamUrl && newStreamUrl !== prevStreamUrl;
+    if (expanded.value[editForm.value.id] && streamChanged) {
+      streamSrc.value[editForm.value.id] = newStreamUrl;
     }
     editDialog.value = false;
   }
