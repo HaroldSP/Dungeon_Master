@@ -26,7 +26,7 @@
       <div class="stats-column">
         <div class="abilities-grid">
           <div
-            v-for="ability in abilityPlaceholders"
+            v-for="ability in displayedAbilities"
             :key="ability.key"
             class="ability-box"
           >
@@ -38,6 +38,27 @@
               <div class="score-box">
                 <div class="score-label">ЗНАЧЕНИЕ</div>
                 <div class="score-value">—</div>
+              </div>
+            </div>
+            <div class="skill-row save-row">
+              <span class="skill-modifier">—</span>
+              <span class="skill-name">Спасбросок</span>
+              <div class="throws-group">
+                <span
+                  class="throw-pill"
+                  title="Disadvantage"
+                  >D</span
+                >
+                <span
+                  class="throw-pill"
+                  title="Normal"
+                  >N</span
+                >
+                <span
+                  class="throw-pill"
+                  title="Advantage"
+                  >A</span
+                >
               </div>
             </div>
             <div
@@ -107,6 +128,8 @@
 </template>
 
 <script setup>
+  import { computed } from 'vue';
+
   const props = defineProps({
     streamSrc: {
       type: String,
@@ -134,6 +157,20 @@
     },
   });
 
+  const displayedAbilities = computed(() => {
+    const src = props.abilityPlaceholders || [];
+    // When there are exactly 2 columns, use column-major order (1,4),(2,5),(3,6)
+    // Else, keep natural order.
+    // We approximate by number of items: if <=4, keep natural (likely 2 cols or less); if 6 and layout likely 3 cols, keep natural.
+    if (src.length === 6) {
+      return src;
+    }
+    if (src.length > 0) {
+      return src;
+    }
+    return [];
+  });
+
   defineEmits(['refresh', 'status', 'whoami', 'detect', 'stream-load']);
 </script>
 
@@ -141,7 +178,7 @@
   .stream-wrapper {
     position: relative;
     display: inline-block;
-    width: auto;
+    width: 320px;
     max-width: 320px;
     min-height: 240px; /* reserve space for stream when enabled */
     background: transparent;
@@ -181,10 +218,15 @@
   .stream-and-stats {
     gap: 12px;
     width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
   }
 
   .stream-column {
-    flex: 0 0 auto;
+    flex: 0 0 340px;
+    max-width: 340px;
+    min-width: 320px;
   }
 
   .stats-column {
@@ -268,6 +310,9 @@
     align-items: center;
     gap: 6px;
     font-size: 0.78rem;
+  }
+  .save-row {
+    margin-top: 8px;
   }
 
   .skill-modifier {

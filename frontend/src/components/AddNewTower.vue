@@ -28,11 +28,25 @@
                 cols="12"
                 md="8"
               >
-                <v-text-field
-                  v-model="playerName"
-                  label="Player name"
+                <v-select
+                  v-model="selectedPlayer"
+                  :items="players"
+                  item-title="title"
+                  item-value="value"
+                  label="Player"
                   variant="outlined"
                   density="comfortable"
+                  return-object
+                  clearable
+                  hint="Select a player JSON"
+                  persistent-hint
+                />
+                <v-text-field
+                  v-model="playerName"
+                  label="Player name (override)"
+                  variant="outlined"
+                  density="comfortable"
+                  class="mt-2"
                 />
               </v-col>
             </v-row>
@@ -364,7 +378,7 @@
 </template>
 
 <script setup>
-  import { ref, watch } from 'vue';
+  import { ref, watch, onMounted, computed } from 'vue';
   import { useTowerStore } from '../stores/towerStore';
 
   const towerStore = useTowerStore();
@@ -406,6 +420,8 @@
   const pyChanged = computed(
     () => pyServerUrl.value.trim() !== defaultPyServer.trim()
   );
+  const players = ref([]);
+  const selectedPlayer = ref(null);
   const loading = ref({
     provision: false,
     on: false,
@@ -419,6 +435,57 @@
 
   watch(apUrl, v => localStorage.setItem('diceTowerApUrl', v));
   watch(deviceUrl, v => localStorage.setItem('diceTowerStaUrl', v));
+
+  onMounted(async () => {
+    try {
+      const mods = import.meta.glob('/src/data/players/**/*.json', {
+        eager: true,
+      });
+      players.value = Object.entries(mods).map(([path, mod], idx) => {
+        const data = mod.default || mod;
+        const parsed =
+          typeof data.data === 'string'
+            ? JSON.parse(data.data)
+            : data.data || data;
+        const name =
+          parsed?.name?.value ||
+          parsed?.info?.playerName?.value ||
+          parsed?.info?.name?.value ||
+          `Player ${idx + 1}`;
+        return { value: path, title: name, raw: parsed };
+      });
+    } catch (e) {
+      console.error('load players failed', e);
+    }
+  });
+
+  watch(
+    selectedPlayer,
+    val => {
+      if (val && !playerName.value) {
+        playerName.value =
+          val.title ||
+          val.raw?.name?.value ||
+          val.raw?.info?.playerName?.value ||
+          val.raw?.info?.name?.value ||
+          '';
+      }
+    },
+    { immediate: false }
+  );
+
+  function getSelectedPlayerName() {
+    const sel = selectedPlayer.value;
+    if (!sel) return '';
+    const raw = sel.raw;
+    return (
+      sel.title ||
+      raw?.name?.value ||
+      raw?.info?.playerName?.value ||
+      raw?.info?.name?.value ||
+      ''
+    );
+  }
 
   async function provision() {
     try {
@@ -450,7 +517,7 @@
             apiBase,
             streamUrl,
             towerName: parsed.name || towerName.value || 'Tower',
-            playerName: playerName.value || 'Player',
+            playerName: playerName.value || getSelectedPlayerName() || 'Player',
             online: true, // Mark as online since provision was successful
           });
 
@@ -576,7 +643,10 @@
     const id = `${towerNumber.value || 1}-${Date.now()}`;
     towerStore.addOrUpdateTower({
       id,
-      playerName: playerName.value || `Player ${towerNumber.value || 1}`,
+      playerName:
+        playerName.value ||
+        getSelectedPlayerName() ||
+        `Player ${towerNumber.value || 1}`,
       towerName: towerName.value || `Tower ${towerNumber.value || 1}`,
       apiBase,
       streamUrl,

@@ -225,9 +225,23 @@
               cols="12"
               md="6"
             >
+              <v-select
+                v-model="editSelectedPlayer"
+                :items="players"
+                item-title="title"
+                item-value="value"
+                label="Player"
+                variant="outlined"
+                density="comfortable"
+                return-object
+                clearable
+                hint="Select a player JSON"
+                persistent-hint
+                class="mb-2"
+              />
               <v-text-field
                 v-model="editForm.playerName"
-                label="Player name"
+                label="Player name (override)"
                 variant="outlined"
                 density="comfortable"
                 class="mb-2"
@@ -405,7 +419,7 @@
 </template>
 
 <script setup>
-  import { ref, computed, onMounted } from 'vue';
+  import { ref, computed, onMounted, watch } from 'vue';
   import { useTowerStore } from '../stores/towerStore';
   import { storeToRefs } from 'pinia';
   import TowerDetails from './TowerDetails.vue';
@@ -471,6 +485,8 @@
   });
   const pyDefault =
     import.meta.env.VITE_PY_SERVER_URL || 'http://localhost:8003/detect';
+  const players = ref([]);
+  const editSelectedPlayer = ref(null);
   const editPyChanged = computed(() => {
     const base = editForm.value.pyServerUrl || '';
     const cur = currentEditTower?.value?.pyServerUrl || pyServerUrl || '';
@@ -478,6 +494,44 @@
   });
   const currentEditTower = computed(() =>
     towers.value.find(t => t.id === editForm.value.id)
+  );
+
+  onMounted(async () => {
+    try {
+      const mods = import.meta.glob('/src/data/players/**/*.json', {
+        eager: true,
+      });
+      players.value = Object.entries(mods).map(([path, mod], idx) => {
+        const data = mod.default || mod;
+        const parsed =
+          typeof data.data === 'string'
+            ? JSON.parse(data.data)
+            : data.data || data;
+        const name =
+          parsed?.name?.value ||
+          parsed?.info?.playerName?.value ||
+          parsed?.info?.name?.value ||
+          `Player ${idx + 1}`;
+        return { value: path, title: name, raw: parsed };
+      });
+    } catch (e) {
+      console.error('load players failed', e);
+    }
+  });
+
+  watch(
+    editSelectedPlayer,
+    val => {
+      if (val && !editForm.value.playerName) {
+        editForm.value.playerName =
+          val.title ||
+          val.raw?.name?.value ||
+          val.raw?.info?.playerName?.value ||
+          val.raw?.info?.name?.value ||
+          '';
+      }
+    },
+    { immediate: false }
   );
 
   async function pingStatus(tower) {
@@ -677,6 +731,7 @@
   });
 
   function openEdit(tower) {
+    if (!tower) return;
     editForm.value = {
       id: tower.id,
       playerName: tower.playerName || '',
@@ -687,6 +742,7 @@
       pyServerUrl:
         tower.pyServerUrl || pyServerUrl || 'http://localhost:8003/detect',
     };
+    editSelectedPlayer.value = null;
     editPyStatus.value = '';
     editDialog.value = true;
   }
@@ -696,9 +752,15 @@
       editDialog.value = false;
       return;
     }
+    const selectedName =
+      editSelectedPlayer.value?.title ||
+      editSelectedPlayer.value?.raw?.name?.value ||
+      editSelectedPlayer.value?.raw?.info?.playerName?.value ||
+      editSelectedPlayer.value?.raw?.info?.name?.value ||
+      '';
     towerStore.addOrUpdateTower({
       id: editForm.value.id,
-      playerName: editForm.value.playerName,
+      playerName: editForm.value.playerName || selectedName,
       towerName: editForm.value.towerName,
       apiBase: editForm.value.apiBase,
       streamUrl: editForm.value.streamUrl,
