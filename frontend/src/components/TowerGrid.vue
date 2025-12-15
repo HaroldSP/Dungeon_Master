@@ -130,110 +130,19 @@
                 class="mt-3"
               >
                 <div class="text-body-2 mb-1">Live Stream</div>
-                <div class="stream-and-stats d-flex flex-wrap align-start ga-3">
-                  <div class="stream-column">
-                    <div class="stream-wrapper">
-                      <img
-                        v-if="streamSrc[t.id]"
-                        :key="streamSrc[t.id]"
-                        :src="streamSrc[t.id]"
-                        @load="onStreamLoad(t, $event)"
-                        alt="Stream"
-                        class="stream-image"
-                      />
-                      <div
-                        v-if="getPyBox(t)"
-                        class="bbox-overlay"
-                        :style="getPyBox(t)"
-                      >
-                        <div class="bbox-label">
-                          {{ getPyTopDet(pythonResults[t.id])?.class }}
-                          ({
-                          getPyTopDet(pythonResults[t.id])?.confidence?.toFixed?.(
-                          2 ) ?? '—' }})
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <div class="stats-column">
-                    <div class="abilities-grid">
-                      <div
-                        v-for="ability in abilityPlaceholders"
-                        :key="ability.key"
-                        class="ability-box"
-                      >
-                        <div class="ability-header">
-                          <div class="ability-name">{{ ability.label }}</div>
-                        </div>
-                        <div class="ability-stats">
-                          <div class="modifier-circle">—</div>
-                          <div class="score-box">
-                            <div class="score-label">ЗНАЧЕНИЕ</div>
-                            <div class="score-value">—</div>
-                          </div>
-                        </div>
-                        <div
-                          v-if="ability.skills?.length"
-                          class="skills-list"
-                        >
-                          <div
-                            v-for="skill in ability.skills"
-                            :key="skill"
-                            class="skill-row"
-                          >
-                            <span class="skill-modifier">—</span>
-                            <span class="skill-name">{{ skill }}</span>
-                            <div class="throws-group">
-                              <span
-                                class="throw-pill"
-                                title="Disadvantage"
-                                >D</span
-                              >
-                              <span
-                                class="throw-pill"
-                                title="Normal"
-                                >N</span
-                              >
-                              <span
-                                class="throw-pill"
-                                title="Advantage"
-                                >A</span
-                              >
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div class="d-flex gap-2 mt-2">
-                  <v-btn
-                    size="small"
-                    color="primary"
-                    @click="refreshStream(t)"
-                    text="Refresh"
-                  />
-                  <v-btn
-                    size="small"
-                    variant="tonal"
-                    @click="pingStatus(t)"
-                    text="Status"
-                  />
-                  <v-btn
-                    size="small"
-                    variant="outlined"
-                    @click="whoamiEsp(t)"
-                    text="Who am I"
-                  />
-                  <v-btn
-                    size="small"
-                    color="success"
-                    variant="tonal"
-                    @click="detectViaPython(t)"
-                    :loading="loading[`${t.id}-py`]"
-                    text="Detect (Python)"
-                  />
-                </div>
+                <TowerDetails
+                  :stream-src="streamSrc[t.id]"
+                  :bbox-style="getPyBox(t)"
+                  :top-detection="getPyTopDet(pythonResults[t.id])"
+                  :ability-placeholders="abilityPlaceholders"
+                  :status-loading="loading[`${t.id}-status`]"
+                  :detect-loading="loading[`${t.id}-py`]"
+                  @stream-load="onStreamLoad(t, $event)"
+                  @refresh="refreshStream(t)"
+                  @status="pingStatus(t)"
+                  @whoami="whoamiEsp(t)"
+                  @detect="detectViaPython(t)"
+                />
 
                 <v-divider class="my-3" />
                 <div class="text-body-2 mb-1">
@@ -499,6 +408,7 @@
   import { ref, computed, onMounted } from 'vue';
   import { useTowerStore } from '../stores/towerStore';
   import { storeToRefs } from 'pinia';
+  import TowerDetails from './TowerDetails.vue';
 
   const pyServerUrl = import.meta.env.VITE_PY_SERVER_URL || '';
 
