@@ -115,10 +115,20 @@
                 @click="remove(t.id)"
                 text="Remove"
               />
+              <v-btn
+                size="small"
+                variant="outlined"
+                color="primary"
+                @click="toggleDetails(t)"
+                :text="expanded[t.id] ? 'Hide details' : 'Details'"
+              />
             </div>
 
             <v-expand-transition>
-              <div class="mt-3">
+              <div
+                v-if="expanded[t.id]"
+                class="mt-3"
+              >
                 <div class="text-body-2 mb-1">Live Stream</div>
                 <div class="stream-wrapper">
                   <img
@@ -170,15 +180,6 @@
                     @click="detectViaPython(t)"
                     :loading="loading[`${t.id}-py`]"
                     text="Detect (Python)"
-                  />
-                  <v-switch
-                    v-model="streamEnabled[t.id]"
-                    inset
-                    hide-details
-                    density="compact"
-                    class="ml-2"
-                    :label="streamEnabled[t.id] ? 'Stream on' : 'Stream off'"
-                    @change="onStreamToggle(t)"
                   />
                 </div>
 
@@ -547,11 +548,6 @@
     towerStore.removeTower(id);
   }
 
-  function toggleExpand(id) {
-    // keep details always open
-    expanded.value[id] = true;
-  }
-
   async function stopStream(id) {
     if (!id && id !== 0) return;
     const tower = towers.value.find(t => t.id === id);
@@ -587,6 +583,21 @@
     if (streamEnabled.value[tower.id]) {
       refreshStream(tower);
     } else {
+      stopStream(tower.id);
+    }
+  }
+
+  function toggleDetails(tower) {
+    if (!tower?.id) return;
+    const next = !expanded.value[tower.id];
+    expanded.value[tower.id] = next;
+    if (next) {
+      // Opening: enable stream and refresh
+      streamEnabled.value[tower.id] = true;
+      refreshStream(tower);
+    } else {
+      // Closing: turn off stream and stop on ESP
+      streamEnabled.value[tower.id] = false;
       stopStream(tower.id);
     }
   }
