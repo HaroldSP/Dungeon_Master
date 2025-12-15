@@ -130,27 +130,79 @@
                 class="mt-3"
               >
                 <div class="text-body-2 mb-1">Live Stream</div>
-                <div class="stream-wrapper">
-                  <img
-                    v-if="streamSrc[t.id]"
-                    :key="streamSrc[t.id]"
-                    :src="streamSrc[t.id]"
-                    @load="onStreamLoad(t, $event)"
-                    alt="Stream"
-                    class="stream-image"
-                  />
-                  <div
-                    v-if="getPyBox(t)"
-                    class="bbox-overlay"
-                    :style="getPyBox(t)"
-                  >
-                    <div class="bbox-label">
-                      {{ getPyTopDet(pythonResults[t.id])?.class }}
-                      ({{
-                        getPyTopDet(pythonResults[t.id])?.confidence?.toFixed?.(
-                          2
-                        ) ?? '—'
-                      }})
+                <div class="stream-and-stats d-flex flex-wrap align-start ga-3">
+                  <div class="stream-column">
+                    <div class="stream-wrapper">
+                      <img
+                        v-if="streamSrc[t.id]"
+                        :key="streamSrc[t.id]"
+                        :src="streamSrc[t.id]"
+                        @load="onStreamLoad(t, $event)"
+                        alt="Stream"
+                        class="stream-image"
+                      />
+                      <div
+                        v-if="getPyBox(t)"
+                        class="bbox-overlay"
+                        :style="getPyBox(t)"
+                      >
+                        <div class="bbox-label">
+                          {{ getPyTopDet(pythonResults[t.id])?.class }}
+                          ({
+                          getPyTopDet(pythonResults[t.id])?.confidence?.toFixed?.(
+                          2 ) ?? '—' }})
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="stats-column">
+                    <div class="abilities-grid">
+                      <div
+                        v-for="ability in abilityPlaceholders"
+                        :key="ability.key"
+                        class="ability-box"
+                      >
+                        <div class="ability-header">
+                          <div class="ability-name">{{ ability.label }}</div>
+                        </div>
+                        <div class="ability-stats">
+                          <div class="modifier-circle">—</div>
+                          <div class="score-box">
+                            <div class="score-label">ЗНАЧЕНИЕ</div>
+                            <div class="score-value">—</div>
+                          </div>
+                        </div>
+                        <div
+                          v-if="ability.skills?.length"
+                          class="skills-list"
+                        >
+                          <div
+                            v-for="skill in ability.skills"
+                            :key="skill"
+                            class="skill-row"
+                          >
+                            <span class="skill-modifier">—</span>
+                            <span class="skill-name">{{ skill }}</span>
+                            <div class="throws-group">
+                              <span
+                                class="throw-pill"
+                                title="Disadvantage"
+                                >D</span
+                              >
+                              <span
+                                class="throw-pill"
+                                title="Normal"
+                                >N</span
+                              >
+                              <span
+                                class="throw-pill"
+                                title="Advantage"
+                                >A</span
+                              >
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -466,6 +518,36 @@
   const expanded = ref({});
   const streamEnabled = ref({});
   const pythonResults = ref({});
+  const abilityPlaceholders = [
+    { key: 'str', label: 'СИЛА', skills: ['Атлетика'] },
+    {
+      key: 'dex',
+      label: 'ЛОВКОСТЬ',
+      skills: ['Акробатика', 'Ловкость рук', 'Скрытность'],
+    },
+    { key: 'con', label: 'ТЕЛОСЛОЖЕНИЕ', skills: [] },
+    {
+      key: 'int',
+      label: 'ИНТЕЛЛЕКТ',
+      skills: ['Анализ', 'История', 'Магия', 'Природа', 'Религия'],
+    },
+    {
+      key: 'wis',
+      label: 'МУДРОСТЬ',
+      skills: [
+        'Проницательность',
+        'Медицина',
+        'Уход за животными',
+        'Восприятие',
+        'Выживание',
+      ],
+    },
+    {
+      key: 'cha',
+      label: 'ХАРИЗМА',
+      skills: ['Обман', 'Запугивание', 'Выступление', 'Убеждение'],
+    },
+  ];
   const editDialog = ref(false);
   const editPyStatus = ref('');
   const editForm = ref({
@@ -843,19 +925,21 @@
 <style scoped>
   .stream-wrapper {
     position: relative;
-    display: block;
-    width: 100%;
+    display: inline-block;
+    width: auto;
+    max-width: 320px;
     min-height: 240px; /* reserve space for stream when enabled */
     background: transparent;
     border-radius: 0;
   }
   .stream-image {
-    max-width: 100%;
-    max-height: 360px;
+    width: 320px;
+    max-width: 320px;
+    max-height: 240px;
     height: auto;
-    width: auto;
     border-radius: 6px;
     display: block;
+    object-fit: contain;
   }
   .gap-2 {
     gap: 8px;
@@ -880,5 +964,138 @@
       -50%,
       calc(-100% - 1px)
     ); /* center and lift above the box */
+  }
+
+  .stream-and-stats {
+    gap: 8px;
+  }
+
+  .stream-column {
+    flex: 0 0 auto;
+  }
+
+  .stats-column {
+    flex: 1 1 0;
+    min-width: 260px;
+    padding: 0;
+  }
+
+  .abilities-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(140px, 1fr));
+    gap: 10px;
+  }
+
+  .ability-box {
+    border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+    border-radius: 4px;
+    padding: 10px;
+    background: rgba(var(--v-theme-surface), 0.5);
+  }
+
+  .ability-header {
+    margin-bottom: 6px;
+  }
+
+  .ability-name {
+    font-weight: 700;
+    font-size: 0.85rem;
+    text-align: center;
+  }
+
+  .ability-stats {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .modifier-circle {
+    width: 36px;
+    height: 36px;
+    border: 2px solid rgba(var(--v-theme-on-surface), 0.3);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    font-size: 0.85rem;
+    flex-shrink: 0;
+  }
+
+  .score-box {
+    flex: 1;
+    min-width: 0;
+    border: 1px solid rgba(var(--v-theme-on-surface), 0.3);
+    border-radius: 4px;
+    padding: 6px;
+    text-align: center;
+  }
+
+  .score-label {
+    font-size: 0.65rem;
+    opacity: 0.7;
+  }
+
+  .score-value {
+    font-weight: 700;
+    font-size: 1rem;
+  }
+
+  .skills-list {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .skill-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.78rem;
+  }
+
+  .skill-modifier {
+    min-width: 28px;
+    text-align: right;
+    font-weight: 500;
+  }
+
+  .skill-name {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .proficiency-checkbox {
+    width: 16px;
+    height: 16px;
+    border: 1px solid rgba(var(--v-theme-on-surface), 0.4);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .throws-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .throw-pill {
+    width: 20px;
+    height: 20px;
+    border: 1px solid rgba(var(--v-theme-on-surface), 0.6);
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: rgba(var(--v-theme-on-surface), 0.8);
+    background: rgba(var(--v-theme-surface), 0.4);
   }
 </style>
