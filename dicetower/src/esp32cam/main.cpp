@@ -772,8 +772,9 @@ static void handleProvision() {
   if (saved) {
     connected = tryConnectSta(creds);
     if (connected) {
-      WiFi.mode(WIFI_STA);
-      Serial.println("AP disabled after successful STA connection");
+      // Keep AP enabled so web interface is always accessible
+      // WiFi.mode(WIFI_STA);  // Commented out to keep AP+STA mode
+      Serial.println("STA connected, AP remains enabled for web access");
       staConnected = true;
       staIp = WiFi.localIP();
     }
@@ -1087,6 +1088,24 @@ void setup() {
 
   WifiCredentials creds;
   bool haveCreds = loadCredentials(creds);
+  
+  // If no saved credentials, try using build-time .env credentials if available
+  #ifdef WIFI_SSID_ENV
+  if (!haveCreds && strlen(WIFI_SSID_ENV) > 0) {
+    Serial.println("Using build-time WiFi credentials from .env file");
+    creds.ssid = String(WIFI_SSID_ENV);
+    #ifdef WIFI_PASS_ENV
+    creds.pass = String(WIFI_PASS_ENV);
+    #else
+    creds.pass = "";
+    #endif
+    creds.name = "";
+    haveCreds = true;
+    // Optionally save to LittleFS for persistence
+    saveCredentials(creds);
+  }
+  #endif
+  
   if (haveCreds) {
     (void)tryConnectSta(creds, 12000);
     if (WiFi.status() == WL_CONNECTED) {
