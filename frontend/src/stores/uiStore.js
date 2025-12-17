@@ -51,7 +51,10 @@ const loadDetailsExpandedState = () => {
 const persistDetailsExpandedState = map => {
   if (typeof localStorage === 'undefined') return;
   try {
-    localStorage.setItem(STORAGE_KEY_DETAILS_EXPANDED, JSON.stringify(map || {}));
+    localStorage.setItem(
+      STORAGE_KEY_DETAILS_EXPANDED,
+      JSON.stringify(map || {})
+    );
   } catch {
     // ignore
   }
@@ -100,6 +103,3 @@ export const useUiStore = defineStore('ui', {
     },
   },
 });
-
-
-
