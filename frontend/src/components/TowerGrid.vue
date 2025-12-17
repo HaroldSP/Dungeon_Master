@@ -152,11 +152,15 @@
                 <TowerDetails
                   :stream-src="streamSrc[t.id]"
                   :bbox-style="getPyBox(t)"
+                  :all-boxes="getAllPyBoxes(t)"
                   :top-detection="getPyTopDet(pythonResults[t.id])"
                   :ability-placeholders="abilityPlaceholders"
                   :player-stats="getPlayerStatsForTower(t)"
                   :prof-bonus="getPlayerProfBonusForTower(t)"
                   :roll-reset-key="rollResetKey[t.id] || 0"
+                  :roll-mode="rollSessions[t.id]?.mode || 'normal'"
+                  :dice-values="rollSessions[t.id]?.diceValues || null"
+                  :one-shot-value="oneShotValues[t.id] ?? null"
                   :status-loading="loading[`${t.id}-status`]"
                   :detect-loading="loading[`${t.id}-py`]"
                   @stream-load="onStreamLoad(t, $event)"
@@ -463,6 +467,7 @@
   const rollSessions = ref({});
   const rollResetKey = ref({});
   const detectAutoClearTimers = ref({});
+  const oneShotValues = ref({}); // { [towerId]: number | null } for Detect button
   const abilityPlaceholders = [
     { key: 'str', label: 'СИЛА', skills: ['Атлетика'] },
     {
@@ -892,6 +897,9 @@
       delete detectAutoClearTimers.value[id];
     }
 
+    // Clear previous one-shot value
+    oneShotValues.value = { ...oneShotValues.value, [id]: null };
+
     loading.value[`${id}-py`] = true;
     try {
       const snapRes = await fetch(snapUrl, { cache: 'no-store' });
@@ -914,6 +922,14 @@
       const data = await res.json();
       pythonResults.value[id] = normalizePythonResult(data);
 
+      // Extract best value for one-shot display
+      const det = getPyTopDet(pythonResults.value[id]);
+      const rawVal = det?.value ?? det?.class;
+      const num = Number(rawVal);
+      if (Number.isFinite(num)) {
+        oneShotValues.value = { ...oneShotValues.value, [id]: num };
+      }
+
       // Schedule auto-clear after 3s if enabled
       if (uiStore.resultsAutoClear[id] !== false) {
         detectAutoClearTimers.value[id] = setTimeout(() => {
@@ -921,6 +937,10 @@
           const pyCopy = { ...pythonResults.value };
           delete pyCopy[id];
           pythonResults.value = pyCopy;
+          // Clear one-shot value
+          const osCopy = { ...oneShotValues.value };
+          delete osCopy[id];
+          oneShotValues.value = osCopy;
           // Bump reset key so TowerDetails clears its state
           const rk = { ...rollResetKey.value };
           rk[id] = (rk[id] || 0) + 1;
@@ -1042,6 +1062,28 @@
     return null;
   }
 
+  // Get all detected dice values as numbers (sorted by confidence desc)
+  function getAllDiceValues(res) {
+    if (!res) return [];
+    const nums = res.detected_numbers || (res.result ? [res.result] : []);
+    return nums
+      .map(d => {
+        const raw = d?.value ?? d?.class;
+        const num = Number(raw);
+        return Number.isFinite(num) ? { value: num, confidence: d?.confidence ?? 0, det: d } : null;
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.confidence - a.confidence);
+  }
+
+  // Get the two highest-confidence dice for advantage/disadvantage
+  function getAdvDisDice(res) {
+    const all = getAllDiceValues(res);
+    if (all.length < 2) return null;
+    // Return [die1, die2] sorted by confidence
+    return [all[0], all[1]];
+  }
+
   function getPyBox(tower) {
     const res = pythonResults.value[tower.id];
     const det = getPyTopDet(res);
@@ -1065,6 +1107,38 @@
       width: `${det.bbox.width * scaleX}px`,
       height: `${det.bbox.height * scaleY}px`,
     };
+  }
+
+  // Get bounding boxes for dice detection (max 2, highest confidence)
+  function getAllPyBoxes(tower) {
+    const res = pythonResults.value[tower.id];
+    if (!res) return [];
+    const detections = res.detected_numbers || (res.result ? [res.result] : []);
+    if (!detections.length) return [];
+
+    const imgSize = res?.image_size || { width: 320, height: 240 };
+    const disp = streamSizes.value[tower.id];
+    if (!disp) return [];
+
+    const scaleX = disp.w / imgSize.width;
+    const scaleY = disp.h / imgSize.height;
+
+    // Sort by confidence and take only top 2 (we never need more than 2 dice)
+    const topTwo = [...detections]
+      .filter(det => det?.bbox)
+      .sort((a, b) => (b.confidence || 0) - (a.confidence || 0))
+      .slice(0, 2);
+
+    return topTwo.map(det => ({
+      style: {
+        left: `${det.bbox.x1 * scaleX}px`,
+        top: `${det.bbox.y1 * scaleY}px`,
+        width: `${det.bbox.width * scaleX}px`,
+        height: `${det.bbox.height * scaleY}px`,
+      },
+      label: det.class,
+      confidence: det.confidence,
+    }));
   }
 
   function clearRollSession(id) {
@@ -1107,6 +1181,8 @@
       return;
     }
 
+    const isAdvDis = session.mode === 'advantage' || session.mode === 'disadvantage';
+
     try {
       const snapRes = await fetch(snapUrl, { cache: 'no-store' });
       if (!snapRes.ok) {
@@ -1124,40 +1200,58 @@
       const data = await res.json();
       pythonResults.value[id] = normalizePythonResult(data);
 
-      const det = getPyTopDet(pythonResults.value[id]);
-      const rawVal = det?.value ?? det?.class;
-      const num = Number(rawVal);
       const now = Date.now();
 
-      if (Number.isFinite(num)) {
-        let updated = { ...session };
-        if (updated.stableValue === num) {
-          if (!updated.stableSince) {
-            updated.stableSince = now;
-          } else if (now - updated.stableSince >= 1000) {
-            // Stable for at least 1s → finalize
-            updated.active = false;
-            rollSessions.value = { ...rollSessions.value, [id]: updated };
-            // Auto-clear after 3s if enabled (default ON; only disabled when explicitly false)
-            if (uiStore.resultsAutoClear[id] !== false) {
-              setTimeout(() => {
-                const towerCurrent = towers.value.find(t => t.id === id);
-                if (towerCurrent) {
-                  stopRoll(towerCurrent);
-                  // bump reset key so child component clears its active button state
-                  const rk = { ...rollResetKey.value };
-                  rk[id] = (rk[id] || 0) + 1;
-                  rollResetKey.value = rk;
-                }
-              }, 3000);
+      if (isAdvDis) {
+        // Advantage/Disadvantage: need 2 stable dice
+        const twoDice = getAdvDisDice(pythonResults.value[id]);
+        if (twoDice && twoDice.length === 2) {
+          const vals = [twoDice[0].value, twoDice[1].value].sort((a, b) => a - b);
+          const stableKey = vals.join(','); // e.g. "2,10"
+          
+          let updated = { ...session };
+          if (updated.stableKey === stableKey) {
+            if (!updated.stableSince) {
+              updated.stableSince = now;
+            } else if (now - updated.stableSince >= 600) {
+              // Both dice stable for 600ms → finalize
+              updated.active = false;
+              updated.diceValues = vals; // [low, high]
+              rollSessions.value = { ...rollSessions.value, [id]: updated };
+              scheduleAutoClear(id);
+              return;
             }
-            return;
+          } else {
+            updated.stableKey = stableKey;
+            updated.stableSince = now;
           }
-        } else {
-          updated.stableValue = num;
-          updated.stableSince = now;
+          rollSessions.value = { ...rollSessions.value, [id]: updated };
         }
-        rollSessions.value = { ...rollSessions.value, [id]: updated };
+      } else {
+        // Normal roll: single die
+        const det = getPyTopDet(pythonResults.value[id]);
+        const rawVal = det?.value ?? det?.class;
+        const num = Number(rawVal);
+
+        if (Number.isFinite(num)) {
+          let updated = { ...session };
+          if (updated.stableValue === num) {
+            if (!updated.stableSince) {
+              updated.stableSince = now;
+            } else if (now - updated.stableSince >= 600) {
+              // Stable for at least 600ms → finalize
+              updated.active = false;
+              updated.diceValues = [num];
+              rollSessions.value = { ...rollSessions.value, [id]: updated };
+              scheduleAutoClear(id);
+              return;
+            }
+          } else {
+            updated.stableValue = num;
+            updated.stableSince = now;
+          }
+          rollSessions.value = { ...rollSessions.value, [id]: updated };
+        }
       }
     } catch (e) {
       console.error('roll loop error', e);
@@ -1176,10 +1270,28 @@
     }
   }
 
+  function scheduleAutoClear(id) {
+    if (uiStore.resultsAutoClear[id] !== false) {
+      setTimeout(() => {
+        const towerCurrent = towers.value.find(t => t.id === id);
+        if (towerCurrent) {
+          stopRoll(towerCurrent);
+          const rk = { ...rollResetKey.value };
+          rk[id] = (rk[id] || 0) + 1;
+          rollResetKey.value = rk;
+        }
+      }, 3000);
+    }
+  }
+
   function startRoll(tower, payload) {
     if (!tower?.id) return;
     const id = tower.id;
     clearRollSession(id);
+    // Clear one-shot value when starting a roll
+    const osCopy = { ...oneShotValues.value };
+    delete osCopy[id];
+    oneShotValues.value = osCopy;
     const session = {
       mode: payload?.mode || 'normal',
       abilityKey: payload?.abilityKey || null,

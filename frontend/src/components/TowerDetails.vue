@@ -26,8 +26,23 @@
             alt="Stream"
             class="stream-image"
           />
+          <!-- Multiple bounding boxes for all detected dice -->
+          <template v-if="allBoxes && allBoxes.length > 0">
+            <div
+              v-for="(box, idx) in allBoxes"
+              :key="idx"
+              class="bbox-overlay"
+              :style="box.style"
+            >
+              <div class="bbox-label">
+                {{ box.label }}
+                ({{ box.confidence?.toFixed?.(2) ?? '—' }})
+              </div>
+            </div>
+          </template>
+          <!-- Fallback: single box -->
           <div
-            v-if="bboxStyle"
+            v-else-if="bboxStyle"
             class="bbox-overlay"
             :style="bboxStyle"
           >
@@ -42,22 +57,42 @@
           v-if="primaryRoll"
         >
           <div class="roll-line">
-            <span
-              class="roll-value"
-              :class="rollColorClass(primaryRoll.value)"
-            >
-              {{ primaryRoll.value }}
-            </span>
-            <span class="roll-plus">
-              +{{ primaryRoll.mod >= 0 ? primaryRoll.mod : primaryRoll.mod }}
-            </span>
-            <span class="roll-total"> (= {{ primaryRoll.total }}) </span>
+            <!-- Advantage/Disadvantage: show both dice -->
+            <template v-if="primaryRoll.dice && primaryRoll.dice.length === 2">
+              <span class="roll-dice-pair">
+                (<span :class="rollColorClass(primaryRoll.dice[0])">{{ primaryRoll.dice[0] }}</span>
+                |
+                <span :class="rollColorClass(primaryRoll.dice[1])">{{ primaryRoll.dice[1] }}</span>)
+              </span>
+            </template>
+            <!-- Normal/Oneshot: single die -->
+            <template v-else>
+              <span
+                class="roll-value"
+                :class="rollColorClass(primaryRoll.value)"
+              >
+                {{ primaryRoll.value }}
+              </span>
+            </template>
+            <!-- Show modifier: always for adv/dis, or when non-zero for others -->
+            <template v-if="primaryRoll.mod !== 0 || primaryRoll.mode === 'advantage' || primaryRoll.mode === 'disadvantage'">
+              <span class="roll-plus">
+                {{ primaryRoll.mod >= 0 ? '+' : '' }}{{ primaryRoll.mod }}
+              </span>
+              <span class="roll-equals">=</span>
+              <span
+                class="roll-total"
+                :class="totalColorClass"
+              >
+                {{ primaryRoll.total }}
+              </span>
+            </template>
           </div>
           <div
-            v-if="currentSelection?.label"
+            v-if="currentSelection?.label || primaryRoll.mode === 'oneshot'"
             class="roll-label"
           >
-            {{ currentSelection.label }}
+            {{ currentSelection?.label || 'Detect (Python)' }}
           </div>
         </div>
       </div>
@@ -344,6 +379,10 @@
       type: Object,
       default: null,
     },
+    allBoxes: {
+      type: Array,
+      default: () => [],
+    },
     topDetection: {
       type: Object,
       default: null,
@@ -363,6 +402,18 @@
     rollResetKey: {
       type: Number,
       default: 0,
+    },
+    rollMode: {
+      type: String,
+      default: 'normal',
+    },
+    diceValues: {
+      type: Array,
+      default: null,
+    },
+    oneShotValue: {
+      type: Number,
+      default: null,
     },
     statusLoading: {
       type: Boolean,
@@ -452,14 +503,92 @@
   }
 
   const primaryRoll = computed(() => {
+    const mod = currentSelection.value?.mod ?? 0;
+    const mode = props.rollMode || 'normal';
+    const isAdvDis = mode === 'advantage' || mode === 'disadvantage';
+
+    // Use finalized diceValues if available
+    if (props.diceValues && props.diceValues.length > 0) {
+      if (mode === 'advantage' && props.diceValues.length === 2) {
+        const [low, high] = props.diceValues;
+        const chosenValue = high;
+        const total = chosenValue + mod;
+        return {
+          mode: 'advantage',
+          dice: [low, high],
+          chosenValue,
+          mod,
+          total,
+          isNat1: chosenValue === 1,
+          isNat20: chosenValue === 20,
+        };
+      }
+      if (mode === 'disadvantage' && props.diceValues.length === 2) {
+        const [low, high] = props.diceValues;
+        const chosenValue = low;
+        const total = chosenValue + mod;
+        return {
+          mode: 'disadvantage',
+          dice: [low, high],
+          chosenValue,
+          mod,
+          total,
+          isNat1: chosenValue === 1,
+          isNat20: chosenValue === 20,
+        };
+      }
+      // Normal roll with single die
+      const value = props.diceValues[0];
+      const total = value + mod;
+      return {
+        mode: 'normal',
+        value,
+        mod,
+        total,
+        isNat1: value === 1,
+        isNat20: value === 20,
+      };
+    }
+
+    // For adv/dis: don't show anything until both dice are stable
+    if (isAdvDis) return null;
+
+    // One-shot detection (Detect Python button) - no activeThrowKey required
+    if (props.oneShotValue !== null && props.oneShotValue !== undefined) {
+      const value = props.oneShotValue;
+      return {
+        mode: 'oneshot',
+        value,
+        mod: 0,
+        total: value,
+        isNat1: value === 1,
+        isNat20: value === 20,
+      };
+    }
+
+    // Normal mode fallback: use topDetection (while polling is in progress)
     if (!activeThrowKey.value) return null;
     if (!props.topDetection) return null;
     const raw = props.topDetection.value ?? props.topDetection.class ?? null;
     const value = Number(raw);
     if (!Number.isFinite(value)) return null;
-    const mod = currentSelection.value?.mod ?? 0;
     const total = value + mod;
-    return { value, mod, total };
+    return {
+      mode: 'normal',
+      value,
+      mod,
+      total,
+      isNat1: value === 1,
+      isNat20: value === 20,
+    };
+  });
+
+  // Color class for the final total (based on chosen die's nat value)
+  const totalColorClass = computed(() => {
+    if (!primaryRoll.value) return '';
+    if (primaryRoll.value.isNat1) return 'roll-value--fail';
+    if (primaryRoll.value.isNat20) return 'roll-value--crit';
+    return '';
   });
 
   watch(
@@ -745,22 +874,34 @@
 
   .roll-mini-display {
     width: 320px;
-    height: 120px;
+    min-height: 80px;
     max-width: 320px;
-    background: rgba(0, 0, 0, 0.7);
-    padding: 8px 10px;
-    border-radius: 4px;
-    font-size: 13px;
+    background: rgba(0, 0, 0, 0.75);
+    padding: 12px 14px;
+    border-radius: 6px;
+    font-size: 18px;
     color: #fff;
     margin-top: 8px;
     box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
   }
   .roll-line {
     display: flex;
     align-items: baseline;
-    gap: 4px;
+    gap: 6px;
+    font-weight: 600;
   }
   .roll-value {
+    font-weight: 700;
+    font-size: 22px;
+  }
+  .roll-dice-pair {
+    font-size: 20px;
+    font-weight: 600;
+  }
+  .roll-dice-pair span {
     font-weight: 700;
   }
   .roll-value--crit {
@@ -769,13 +910,21 @@
   .roll-value--fail {
     color: #f44336;
   }
-  .roll-plus,
+  .roll-plus {
+    opacity: 0.85;
+  }
+  .roll-equals {
+    opacity: 0.7;
+    margin: 0 2px;
+  }
   .roll-total {
-    opacity: 0.9;
+    font-size: 22px;
+    font-weight: 700;
   }
   .roll-label {
-    margin-top: 2px;
-    font-size: 12px;
-    opacity: 0.8;
+    margin-top: 6px;
+    font-size: 13px;
+    opacity: 0.75;
+    font-weight: 400;
   }
 </style>
