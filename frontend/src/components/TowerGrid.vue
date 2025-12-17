@@ -1168,6 +1168,8 @@
     const pyCopy = { ...pythonResults.value };
     delete pyCopy[id];
     pythonResults.value = pyCopy;
+    // Also clear player screen when DM manually stops
+    rollBroadcast.clearRoll();
   }
 
   async function runRollLoop(tower) {
@@ -1319,11 +1321,8 @@
           rk[id] = (rk[id] || 0) + 1;
           rollResetKey.value = rk;
         }
+        // Clear player screen at the same time (stopRoll now handles this)
       }, 3000);
-      // Clear player screen after longer delay (5s) so players can see result
-      setTimeout(() => {
-        rollBroadcast.clearRoll();
-      }, 5000);
     }
   }
 
@@ -1365,11 +1364,14 @@
     rollSessions.value = { ...rollSessions.value, [id]: session };
 
     // Broadcast rolling state to player screen
+    const pyUrl = tower?.pyServerUrl || pyServerUrl || '';
+    rollBroadcast.setServerUrl(pyUrl);
     console.log('[TowerGrid] Broadcasting startRolling:', {
       mode: session.mode,
       playerName,
       label,
       modifier,
+      server: pyUrl,
     });
     rollBroadcast.startRolling({
       mode: session.mode,

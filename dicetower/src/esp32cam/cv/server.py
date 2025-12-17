@@ -1,15 +1,17 @@
 # server.py
 # Простой backend сервер для детекции чисел на кубиках
 
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from ultralytics import YOLO
 import cv2
 import numpy as np
 import os
-from typing import List, Dict
+from typing import List, Dict, Set
 import io
+import asyncio
+import json
 
 app = FastAPI(title="Dice Detection API", description="API для детекции чисел на кубиках")
 
@@ -260,6 +262,112 @@ async def detect_best_dice(file: UploadFile = File(...)):
             status_code=500,
             detail=f"Ошибка при обработке изображения: {str(e)}"
         )
+
+# ============================================
+# Roll Broadcast API (for Player Screen)
+# ============================================
+from pydantic import BaseModel
+from typing import Optional
+import time
+
+class RollData(BaseModel):
+    id: Optional[str] = None
+    status: str  # 'rolling' or 'result'
+    mode: str = 'normal'  # 'normal', 'advantage', 'disadvantage'
+    playerName: Optional[str] = None
+    label: Optional[str] = None
+    dice: Optional[list] = None  # [low, high] for adv/dis
+    value: Optional[int] = None  # single die value
+    chosenValue: Optional[int] = None
+    modifier: int = 0
+    total: Optional[int] = None
+    isNat1: bool = False
+    isNat20: bool = False
+
+# In-memory storage for current roll
+current_roll: Optional[dict] = None
+roll_timestamp: float = 0
+
+# ============================================
+# WebSocket Connection Manager
+# ============================================
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: Set[WebSocket] = set()
+    
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.add(websocket)
+        print(f"[WS] Client connected. Total: {len(self.active_connections)}")
+    
+    def disconnect(self, websocket: WebSocket):
+        self.active_connections.discard(websocket)
+        print(f"[WS] Client disconnected. Total: {len(self.active_connections)}")
+    
+    async def broadcast(self, message: dict):
+        """Send message to all connected clients"""
+        if not self.active_connections:
+            return
+        data = json.dumps(message)
+        disconnected = set()
+        for connection in self.active_connections:
+            try:
+                await connection.send_text(data)
+            except Exception:
+                disconnected.add(connection)
+        # Clean up disconnected
+        for conn in disconnected:
+            self.active_connections.discard(conn)
+
+ws_manager = ConnectionManager()
+
+@app.websocket("/ws/roll")
+async def websocket_roll(websocket: WebSocket):
+    """WebSocket endpoint for real-time roll updates"""
+    await ws_manager.connect(websocket)
+    # Send current state immediately on connect
+    if current_roll:
+        await websocket.send_text(json.dumps({"type": "roll", "data": current_roll}))
+    else:
+        await websocket.send_text(json.dumps({"type": "clear"}))
+    try:
+        while True:
+            # Keep connection alive, receive any messages (heartbeat)
+            data = await websocket.receive_text()
+            # Could handle ping/pong here if needed
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket)
+
+@app.get("/roll")
+async def get_roll():
+    """Get current roll state for player screen (fallback for non-WS)"""
+    global current_roll, roll_timestamp
+    # Auto-expire after 60 seconds
+    if current_roll and time.time() - roll_timestamp > 60:
+        current_roll = None
+    return {"roll": current_roll, "timestamp": roll_timestamp}
+
+@app.post("/roll")
+async def set_roll(data: RollData):
+    """Set current roll state (called by DM) and broadcast via WebSocket"""
+    global current_roll, roll_timestamp
+    current_roll = data.dict()
+    roll_timestamp = time.time()
+    print(f"[Roll] Set: {data.status} - {data.playerName} - {data.label}")
+    # Broadcast to all WebSocket clients
+    await ws_manager.broadcast({"type": "roll", "data": current_roll})
+    return {"ok": True}
+
+@app.delete("/roll")
+async def clear_roll():
+    """Clear current roll state and broadcast via WebSocket"""
+    global current_roll, roll_timestamp
+    current_roll = None
+    roll_timestamp = time.time()
+    print("[Roll] Cleared")
+    # Broadcast clear to all WebSocket clients
+    await ws_manager.broadcast({"type": "clear"})
+    return {"ok": True}
 
 if __name__ == "__main__":
     import uvicorn

@@ -1,72 +1,155 @@
 import { defineStore } from 'pinia';
-import { ref, watch } from 'vue';
-
-const STORAGE_KEY = 'dm_roll_broadcast';
+import { ref, computed } from 'vue';
 
 /**
  * Store for broadcasting roll results to the player screen.
- * Uses localStorage + storage events for cross-tab communication.
+ * DM uses HTTP POST, Player Screen uses WebSocket for instant updates.
  */
 export const useRollBroadcastStore = defineStore('rollBroadcast', () => {
   const currentRoll = ref(null);
+  const serverUrl = ref(''); // Will be set from tower's pyServerUrl
+  const isConnected = ref(false);
+  const connectionError = ref(null);
+  let ws = null;
+  let reconnectTimeout = null;
 
-  // Write to localStorage (called by DM tab)
-  function writeToStorage(data) {
+  // Compute the base URL (strip /detect or /detect/best if present)
+  const baseUrl = computed(() => {
+    let url = serverUrl.value || '';
+    url = url.replace(/\/detect(\/best)?$/, '');
+    return url.replace(/\/$/, '');
+  });
+
+  // Compute WebSocket URL from HTTP URL
+  const wsUrl = computed(() => {
+    if (!baseUrl.value) return '';
+    // Replace http:// with ws:// or https:// with wss://
+    return baseUrl.value.replace(/^http/, 'ws') + '/ws/roll';
+  });
+
+  // === HTTP API (for DM posting) ===
+  
+  async function postRoll(data) {
+    if (!baseUrl.value) {
+      console.warn('[RollBroadcast] No server URL configured');
+      return;
+    }
     try {
-      const payload = JSON.stringify({ ...data, _ts: Date.now() });
-      localStorage.setItem(STORAGE_KEY, payload);
-      console.log('[RollBroadcast] Written to storage:', data?.status || 'cleared');
+      const url = `${baseUrl.value}/roll`;
+      console.log('[RollBroadcast] POST', url, data?.status);
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        console.error('[RollBroadcast] POST failed:', res.status);
+      }
     } catch (e) {
-      console.error('[RollBroadcast] Failed to write:', e);
+      console.error('[RollBroadcast] POST error:', e);
     }
   }
 
-  // Read from localStorage
-  function readFromStorage() {
+  async function deleteRoll() {
+    if (!baseUrl.value) return;
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      // Ignore stale data (older than 60 seconds)
-      if (parsed._ts && Date.now() - parsed._ts > 60000) {
-        return null;
-      }
-      return parsed;
+      const url = `${baseUrl.value}/roll`;
+      await fetch(url, { method: 'DELETE' });
+      console.log('[RollBroadcast] DELETE sent');
     } catch (e) {
-      console.error('[RollBroadcast] Failed to read:', e);
-      return null;
+      console.error('[RollBroadcast] DELETE error:', e);
     }
   }
 
-  // Listen for storage changes from OTHER tabs
-  function setupStorageListener() {
-    // Listen for ALL storage events first (debug)
-    window.addEventListener('storage', (event) => {
-      console.log('[RollBroadcast] ANY storage event:', event.key, event.newValue?.slice(0, 50));
-      
-      if (event.key !== STORAGE_KEY) return;
-      
-      console.log('[RollBroadcast] Our key changed!');
-      
-      if (!event.newValue) {
-        console.log('[RollBroadcast] Storage cleared -> currentRoll = null');
-        currentRoll.value = null;
-        return;
-      }
+  // === WebSocket (for Player Screen) ===
 
-      try {
-        const data = JSON.parse(event.newValue);
-        console.log('[RollBroadcast] Parsed data:', data?.status, data?.playerName);
-        currentRoll.value = data;
-      } catch (e) {
-        console.error('[RollBroadcast] Failed to parse storage event:', e);
-      }
-    });
-    console.log('[RollBroadcast] Storage listener ready');
-    console.log('[RollBroadcast] Listening for key:', STORAGE_KEY);
+  function connectWebSocket(url) {
+    if (url) {
+      serverUrl.value = url;
+    }
+    if (!wsUrl.value) {
+      console.warn('[RollBroadcast] Cannot connect: no server URL');
+      connectionError.value = 'No server URL';
+      return;
+    }
+
+    // Close existing connection
+    if (ws) {
+      ws.close();
+      ws = null;
+    }
+
+    console.log('[RollBroadcast] Connecting WebSocket:', wsUrl.value);
+    connectionError.value = null;
+
+    try {
+      ws = new WebSocket(wsUrl.value);
+
+      ws.onopen = () => {
+        console.log('[RollBroadcast] WebSocket connected');
+        isConnected.value = true;
+        connectionError.value = null;
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          console.log('[RollBroadcast] WS message:', msg.type);
+          
+          if (msg.type === 'roll' && msg.data) {
+            currentRoll.value = msg.data;
+          } else if (msg.type === 'clear') {
+            currentRoll.value = null;
+          }
+        } catch (e) {
+          console.error('[RollBroadcast] WS parse error:', e);
+        }
+      };
+
+      ws.onclose = (event) => {
+        console.log('[RollBroadcast] WebSocket closed:', event.code);
+        isConnected.value = false;
+        ws = null;
+        
+        // Auto-reconnect after 2 seconds (unless intentionally closed)
+        if (serverUrl.value && event.code !== 1000) {
+          reconnectTimeout = setTimeout(() => {
+            console.log('[RollBroadcast] Reconnecting...');
+            connectWebSocket();
+          }, 2000);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('[RollBroadcast] WebSocket error:', error);
+        connectionError.value = 'Connection failed';
+      };
+
+    } catch (e) {
+      console.error('[RollBroadcast] WebSocket create error:', e);
+      connectionError.value = e.message;
+    }
   }
 
-  // === Public API ===
+  function disconnectWebSocket() {
+    if (reconnectTimeout) {
+      clearTimeout(reconnectTimeout);
+      reconnectTimeout = null;
+    }
+    if (ws) {
+      ws.close(1000, 'Manual disconnect');
+      ws = null;
+    }
+    isConnected.value = false;
+    console.log('[RollBroadcast] WebSocket disconnected');
+  }
+
+  // === Public API (called by DM) ===
+
+  function setServerUrl(url) {
+    serverUrl.value = url || '';
+    console.log('[RollBroadcast] Server URL set:', baseUrl.value);
+  }
 
   function startRolling(payload) {
     const data = {
@@ -84,7 +167,7 @@ export const useRollBroadcastStore = defineStore('rollBroadcast', () => {
       isNat20: false,
     };
     currentRoll.value = data;
-    writeToStorage(data);
+    postRoll(data);
   }
 
   function showResult(payload) {
@@ -103,30 +186,26 @@ export const useRollBroadcastStore = defineStore('rollBroadcast', () => {
       isNat20: payload.isNat20 ?? false,
     };
     currentRoll.value = data;
-    writeToStorage(data);
+    postRoll(data);
   }
 
   function clearRoll() {
     currentRoll.value = null;
-    localStorage.removeItem(STORAGE_KEY);
-    console.log('[RollBroadcast] Cleared');
+    deleteRoll();
   }
-
-  // Load initial state and setup listener
-  const initial = readFromStorage();
-  if (initial) {
-    currentRoll.value = initial;
-    console.log('[RollBroadcast] Loaded initial state:', initial?.status || 'none');
-  } else {
-    console.log('[RollBroadcast] No initial state');
-  }
-  
-  setupStorageListener();
 
   return {
     currentRoll,
+    serverUrl,
+    isConnected,
+    connectionError,
+    baseUrl,
+    wsUrl,
+    setServerUrl,
     startRolling,
     showResult,
     clearRoll,
+    connectWebSocket,
+    disconnectWebSocket,
   };
 });

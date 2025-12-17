@@ -1,8 +1,30 @@
 <template>
   <div class="player-screen">
+    <!-- Connection status indicator (visible when server URL exists, auto-hides after connected) -->
+    <div
+      v-if="!serverError && !statusHidden"
+      class="connection-status"
+      :class="{ connected: isConnected, 'fade-out': statusFading }"
+    >
+      <span class="status-dot"></span>
+      <span class="status-text">{{
+        isConnected ? 'Connected' : connectionError || 'Connecting...'
+      }}</span>
+    </div>
+
+    <!-- Server URL error -->
+    <div
+      v-if="serverError"
+      class="server-error"
+    >
+      <div class="error-icon">⚠️</div>
+      <div class="error-text">{{ serverError }}</div>
+      <div class="error-hint">Example: /player-screen?s=192.168.0.102:8003</div>
+    </div>
+
     <!-- Idle state - static D20, no text -->
     <div
-      v-if="!currentRoll"
+      v-else-if="!currentRoll"
       class="idle-state"
     >
       <div class="d20-wrapper idle">
@@ -90,7 +112,7 @@
       <!-- Check type -->
       <div class="check-type">
         <div class="check-title">{{ checkTitle }}</div>
-        <div class="check-subtitle">{{ currentRoll.label }}</div>
+        <div class="check-subtitle">{{ checkSubtitle }}</div>
       </div>
 
       <!-- Difficulty Class placeholder -->
@@ -320,16 +342,46 @@
 </template>
 
 <script setup>
-  import { ref, computed, watch, onBeforeUnmount } from 'vue';
+  import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
+  import { useRoute } from 'vue-router';
   import { useRollBroadcastStore } from '../stores/rollBroadcastStore';
   import { storeToRefs } from 'pinia';
 
+  const route = useRoute();
   const rollStore = useRollBroadcastStore();
-  const { currentRoll } = storeToRefs(rollStore);
+  const { currentRoll, isConnected, connectionError } = storeToRefs(rollStore);
+
+  // Get server URL from query param: /player-screen?s=192.168.0.102:8003
+  // Supports short form (?s=IP:PORT) or full form (?s=http://IP:PORT)
+  const serverUrl = computed(() => {
+    // Support both ?s= (short) and ?server= (legacy)
+    let url = route.query.s || route.query.server || '';
+    if (url && !url.startsWith('http')) {
+      url = `http://${url}`;
+    }
+    return url;
+  });
+  const serverError = ref('');
+
+  onMounted(() => {
+    if (serverUrl.value) {
+      console.log('[PlayerScreen] Connecting WebSocket to:', serverUrl.value);
+      rollStore.connectWebSocket(serverUrl.value);
+      serverError.value = '';
+    } else {
+      serverError.value = 'No server URL. Add ?s=YOUR_IP:8003 to the URL';
+      console.warn('[PlayerScreen]', serverError.value);
+    }
+  });
 
   const animatedValue1 = ref(20);
   const animatedValue2 = ref(20);
   let animationInterval = null;
+
+  // Connection status auto-hide
+  const statusHidden = ref(false);
+  const statusFading = ref(false);
+  let statusHideTimeout = null;
 
   const isAdvDis = computed(
     () =>
@@ -354,6 +406,20 @@
     if (label.includes('Спасбросок')) return 'Спасбросок';
     if (label.includes('проверка')) return 'Проверка';
     return 'Проверка';
+  });
+
+  const checkSubtitle = computed(() => {
+    const label = currentRoll.value?.label || '';
+    // For saving throws like "ИНТЕЛЛЕКТ Спасбросок" - extract just the ability name
+    if (label.includes('Спасбросок')) {
+      // Remove "Спасбросок" and clean up
+      return label.replace(/\s*Спасбросок\s*/i, '').trim();
+    }
+    // For skills like "Атлетика проверка" - extract skill name
+    if (label.includes('проверка')) {
+      return label.replace(/\s*проверка\s*/i, '').trim();
+    }
+    return label;
   });
 
   const totalClass = computed(() => {
@@ -455,6 +521,31 @@
     { immediate: true }
   );
 
+  // Auto-hide connection status after 5 seconds when connected
+  watch(
+    isConnected,
+    connected => {
+      if (statusHideTimeout) {
+        clearTimeout(statusHideTimeout);
+        statusHideTimeout = null;
+      }
+      if (connected) {
+        // Start fade out after 4 seconds, hide at 5 seconds
+        statusHideTimeout = setTimeout(() => {
+          statusFading.value = true;
+          setTimeout(() => {
+            statusHidden.value = true;
+          }, 1000); // 1s for fade animation
+        }, 4000);
+      } else {
+        // Show status again if disconnected
+        statusHidden.value = false;
+        statusFading.value = false;
+      }
+    },
+    { immediate: true }
+  );
+
   watch(
     currentRoll,
     (newVal, oldVal) => {
@@ -470,6 +561,10 @@
 
   onBeforeUnmount(() => {
     stopAnimation();
+    rollStore.disconnectWebSocket();
+    if (statusHideTimeout) {
+      clearTimeout(statusHideTimeout);
+    }
   });
 </script>
 
@@ -492,6 +587,91 @@
     color: #e8dcc4;
     font-family: 'Crimson Text', Georgia, serif;
     overflow: hidden;
+  }
+
+  /* === SERVER ERROR === */
+  .server-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    padding: 32px;
+    background: rgba(50, 30, 30, 0.8);
+    border: 1px solid rgba(200, 80, 80, 0.4);
+    border-radius: 12px;
+  }
+
+  .error-icon {
+    font-size: 48px;
+  }
+
+  .error-text {
+    font-family: 'Crimson Text', serif;
+    font-size: 18px;
+    color: #de6a6a;
+    text-align: center;
+  }
+
+  .error-hint {
+    font-family: monospace;
+    font-size: 12px;
+    color: #8a6a6a;
+    background: rgba(0, 0, 0, 0.3);
+    padding: 8px 16px;
+    border-radius: 4px;
+  }
+
+  /* === CONNECTION STATUS === */
+  .connection-status {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: rgba(0, 0, 0, 0.5);
+    border-radius: 12px;
+    font-size: 11px;
+    color: #888;
+    opacity: 0.7;
+    transition: opacity 0.3s;
+  }
+
+  .connection-status:hover {
+    opacity: 1;
+  }
+
+  .connection-status .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #f44;
+    animation: pulse 1.5s infinite;
+  }
+
+  .connection-status.connected .status-dot {
+    background: #4c4;
+    animation: none;
+  }
+
+  .connection-status.connected .status-text {
+    color: #6a6;
+  }
+
+  .connection-status.fade-out {
+    opacity: 0;
+    transition: opacity 1s ease-out;
+  }
+
+  @keyframes pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.4;
+    }
   }
 
   /* === IDLE STATE === */
@@ -960,5 +1140,216 @@
   .total-value.total-fail {
     color: #de6a6a;
     text-shadow: 0 0 20px rgba(200, 80, 80, 0.5);
+  }
+
+  /* === LANDSCAPE TABLET RESPONSIVE === */
+  @media (orientation: landscape) and (max-height: 600px) {
+    .player-screen {
+      justify-content: flex-start;
+      padding-top: 8px;
+    }
+
+    .roll-container {
+      flex-direction: row;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 8px 16px;
+      max-width: 100%;
+      width: 100%;
+    }
+
+    /* Left column: player, check type */
+    .roll-header,
+    .check-type {
+      flex: 0 0 auto;
+      text-align: left;
+    }
+
+    .roll-header {
+      order: 1;
+      width: 100%;
+    }
+
+    .check-type {
+      order: 2;
+      flex: 1;
+      min-width: 150px;
+    }
+
+    .check-title {
+      font-size: 18px;
+      letter-spacing: 1px;
+    }
+
+    .check-subtitle {
+      font-size: 14px;
+    }
+
+    .player-context {
+      font-size: 13px;
+    }
+
+    /* DC section */
+    .dc-section {
+      order: 3;
+      padding: 8px 16px;
+      margin-bottom: 0;
+    }
+
+    .dc-label {
+      font-size: 8px;
+    }
+
+    .dc-value {
+      font-size: 24px;
+    }
+
+    /* Dice area in center */
+    .dice-area {
+      order: 4;
+      padding: 12px;
+      flex: 0 0 auto;
+    }
+
+    .dice-row {
+      gap: 16px;
+    }
+
+    .d20-wrapper {
+      width: 80px;
+      height: 92px;
+    }
+
+    .d20-svg {
+      width: 80px;
+      height: 92px;
+    }
+
+    .d20-number {
+      font-size: 22px;
+    }
+
+    .roll-prompt,
+    .mode-badge {
+      font-size: 10px;
+      padding: 3px 10px;
+      margin-top: 6px;
+    }
+
+    /* Bonuses section */
+    .bonuses-section {
+      order: 5;
+      gap: 12px;
+      flex: 1;
+      min-width: 120px;
+    }
+
+    .bonus-item {
+      padding: 6px;
+      gap: 2px;
+    }
+
+    .bonus-icon {
+      width: 28px;
+      height: 28px;
+    }
+
+    .icon-symbol {
+      font-size: 14px;
+    }
+
+    .bonus-value {
+      font-size: 14px;
+    }
+
+    .bonus-label {
+      font-size: 9px;
+    }
+
+    /* Total section */
+    .total-section {
+      order: 6;
+      margin-top: 0;
+      padding: 8px 20px;
+      gap: 10px;
+    }
+
+    .total-label {
+      font-size: 11px;
+    }
+
+    .total-value {
+      font-size: 28px;
+    }
+
+    /* Idle state */
+    .idle-state .d20-wrapper {
+      transform: scale(0.9);
+    }
+  }
+
+  /* Extra small landscape (phone landscape) */
+  @media (orientation: landscape) and (max-height: 420px) {
+    .roll-container {
+      gap: 8px;
+      padding: 4px 12px;
+    }
+
+    .check-title {
+      font-size: 16px;
+    }
+
+    .check-subtitle {
+      font-size: 12px;
+    }
+
+    .d20-wrapper {
+      width: 60px;
+      height: 69px;
+    }
+
+    .d20-svg {
+      width: 60px;
+      height: 69px;
+    }
+
+    .d20-number {
+      font-size: 18px;
+    }
+
+    .dice-area {
+      padding: 8px;
+    }
+
+    .dice-row {
+      gap: 12px;
+    }
+
+    .dc-section {
+      padding: 6px 12px;
+    }
+
+    .dc-value {
+      font-size: 20px;
+    }
+
+    .total-value {
+      font-size: 24px;
+    }
+
+    .bonuses-section {
+      gap: 8px;
+    }
+
+    .bonus-icon {
+      width: 24px;
+      height: 24px;
+    }
+
+    .icon-symbol {
+      font-size: 12px;
+    }
   }
 </style>
