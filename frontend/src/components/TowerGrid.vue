@@ -443,6 +443,7 @@
   import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
   import { useTowerStore } from '../stores/towerStore';
   import { useUiStore } from '../stores/uiStore';
+  import { useRollBroadcastStore } from '../stores/rollBroadcastStore';
   import { storeToRefs } from 'pinia';
   import TowerDetails from './TowerDetails.vue';
 
@@ -457,6 +458,7 @@
 
   const towerStore = useTowerStore();
   const uiStore = useUiStore();
+  const rollBroadcast = useRollBroadcastStore();
   const { towers } = storeToRefs(towerStore);
 
   const loading = ref({});
@@ -1223,6 +1225,23 @@
               updated.active = false;
               updated.diceValues = vals; // [low, high]
               rollSessions.value = { ...rollSessions.value, [id]: updated };
+
+              // Broadcast result to player screen
+              const chosenValue =
+                session.mode === 'advantage' ? vals[1] : vals[0];
+              const total = chosenValue + (session.modifier || 0);
+              rollBroadcast.showResult({
+                mode: session.mode,
+                playerName: session.playerName,
+                label: session.label,
+                dice: vals,
+                chosenValue,
+                modifier: session.modifier || 0,
+                total,
+                isNat1: chosenValue === 1,
+                isNat20: chosenValue === 20,
+              });
+
               scheduleAutoClear(id);
               return;
             }
@@ -1248,6 +1267,21 @@
               updated.active = false;
               updated.diceValues = [num];
               rollSessions.value = { ...rollSessions.value, [id]: updated };
+
+              // Broadcast result to player screen
+              const total = num + (session.modifier || 0);
+              rollBroadcast.showResult({
+                mode: 'normal',
+                playerName: session.playerName,
+                label: session.label,
+                value: num,
+                chosenValue: num,
+                modifier: session.modifier || 0,
+                total,
+                isNat1: num === 1,
+                isNat20: num === 20,
+              });
+
               scheduleAutoClear(id);
               return;
             }
@@ -1286,6 +1320,10 @@
           rollResetKey.value = rk;
         }
       }, 3000);
+      // Clear player screen after longer delay (5s) so players can see result
+      setTimeout(() => {
+        rollBroadcast.clearRoll();
+      }, 5000);
     }
   }
 
@@ -1297,11 +1335,27 @@
     const osCopy = { ...oneShotValues.value };
     delete osCopy[id];
     oneShotValues.value = osCopy;
+
+    // Get player name for broadcast
+    const playerData = players.value.find(p => p.value === tower.playerPath);
+    const playerName = playerData?.title || tower.playerName || '';
+
+    // Build label for broadcast
+    const label =
+      payload?.skillName === '__ability__'
+        ? `${payload?.abilityLabel || ''} проверка`
+        : payload?.skillName || `${payload?.abilityLabel || ''} Спасбросок`;
+
+    const modifier = payload?.modifier ?? 0;
+
     const session = {
       mode: payload?.mode || 'normal',
       abilityKey: payload?.abilityKey || null,
       abilityLabel: payload?.abilityLabel || '',
       skillName: payload?.skillName || null,
+      playerName,
+      label,
+      modifier,
       startedAt: Date.now(),
       stableValue: null,
       stableSince: null,
@@ -1309,6 +1363,21 @@
       timerId: null,
     };
     rollSessions.value = { ...rollSessions.value, [id]: session };
+
+    // Broadcast rolling state to player screen
+    console.log('[TowerGrid] Broadcasting startRolling:', {
+      mode: session.mode,
+      playerName,
+      label,
+      modifier,
+    });
+    rollBroadcast.startRolling({
+      mode: session.mode,
+      playerName,
+      label,
+      modifier,
+    });
+
     runRollLoop(tower);
   }
 

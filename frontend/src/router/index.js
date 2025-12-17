@@ -4,6 +4,7 @@ import MonsterManager from '../views/MonsterManager.vue';
 import DiceTowers from '../views/DiceTowers.vue';
 import Players from '../views/Players.vue';
 import SpellMapper from '../views/SpellMapper.vue';
+import PlayerScreen from '../views/PlayerScreen.vue';
 
 const routes = [
   {
@@ -30,6 +31,12 @@ const routes = [
     path: '/spell-mapper',
     name: 'SpellMapper',
     component: SpellMapper,
+  },
+  {
+    path: '/player-screen',
+    name: 'PlayerScreen',
+    component: PlayerScreen,
+    meta: { hideNav: true }, // Hide navigation for fullscreen display
   },
 ];
 

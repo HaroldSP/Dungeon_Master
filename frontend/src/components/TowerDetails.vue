@@ -493,6 +493,7 @@
       abilityKey: ability?.key || null,
       abilityLabel: ability?.label || '',
       skillName: skill?.name || null,
+      modifier: currentSelection.value?.mod ?? 0,
     });
   }
 
