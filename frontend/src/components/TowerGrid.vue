@@ -1070,7 +1070,9 @@
       .map(d => {
         const raw = d?.value ?? d?.class;
         const num = Number(raw);
-        return Number.isFinite(num) ? { value: num, confidence: d?.confidence ?? 0, det: d } : null;
+        return Number.isFinite(num)
+          ? { value: num, confidence: d?.confidence ?? 0, det: d }
+          : null;
       })
       .filter(Boolean)
       .sort((a, b) => b.confidence - a.confidence);
@@ -1181,7 +1183,8 @@
       return;
     }
 
-    const isAdvDis = session.mode === 'advantage' || session.mode === 'disadvantage';
+    const isAdvDis =
+      session.mode === 'advantage' || session.mode === 'disadvantage';
 
     try {
       const snapRes = await fetch(snapUrl, { cache: 'no-store' });
@@ -1206,9 +1209,11 @@
         // Advantage/Disadvantage: need 2 stable dice
         const twoDice = getAdvDisDice(pythonResults.value[id]);
         if (twoDice && twoDice.length === 2) {
-          const vals = [twoDice[0].value, twoDice[1].value].sort((a, b) => a - b);
+          const vals = [twoDice[0].value, twoDice[1].value].sort(
+            (a, b) => a - b
+          );
           const stableKey = vals.join(','); // e.g. "2,10"
-          
+
           let updated = { ...session };
           if (updated.stableKey === stableKey) {
             if (!updated.stableSince) {
