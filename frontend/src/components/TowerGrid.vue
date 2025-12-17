@@ -120,13 +120,17 @@
                 variant="outlined"
                 color="primary"
                 @click="toggleDetails(t)"
-                :text="expanded[t.id] ? 'Hide details' : 'Details'"
+                :text="
+                  uiStore.towerDetailsExpanded[t.id]
+                    ? 'Hide details'
+                    : 'Details'
+                "
               />
             </div>
 
             <v-expand-transition>
               <div
-                v-if="expanded[t.id]"
+                v-if="uiStore.towerDetailsExpanded[t.id]"
                 class="mt-3"
               >
                 <div class="d-flex align-center justify-space-between mb-1">
@@ -432,7 +436,7 @@
 </template>
 
 <script setup>
-  import { ref, computed, onMounted, watch } from 'vue';
+  import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
   import { useTowerStore } from '../stores/towerStore';
   import { useUiStore } from '../stores/uiStore';
   import { storeToRefs } from 'pinia';
@@ -454,11 +458,11 @@
   const loading = ref({});
   const streamSrc = ref({});
   const streamSizes = ref({});
-  const expanded = ref({});
   const streamEnabled = ref({});
   const pythonResults = ref({});
   const rollSessions = ref({});
   const rollResetKey = ref({});
+  const detectAutoClearTimers = ref({});
   const abilityPlaceholders = [
     { key: 'str', label: 'СИЛА', skills: ['Атлетика'] },
     {
@@ -785,6 +789,11 @@
         // Ignore errors - we'll still clear the frontend state
       }
     }
+    // Clear any pending auto-clear timer
+    if (detectAutoClearTimers.value[id]) {
+      clearTimeout(detectAutoClearTimers.value[id]);
+      delete detectAutoClearTimers.value[id];
+    }
     // Clear Python results immediately so overlay disappears right away
     const pyCopy = { ...pythonResults.value };
     delete pyCopy[id];
@@ -812,16 +821,18 @@
 
   function toggleDetails(tower) {
     if (!tower?.id) return;
-    const next = !expanded.value[tower.id];
-    expanded.value[tower.id] = next;
+    const next = !uiStore.towerDetailsExpanded[tower.id];
+    uiStore.setTowerDetailsExpanded(tower.id, next);
     if (next) {
       // Opening: enable stream and refresh
       streamEnabled.value[tower.id] = true;
       refreshStream(tower);
+      uiStore.setTowerStreamActive(tower.id, true);
     } else {
       // Closing: turn off stream and stop on ESP
       streamEnabled.value[tower.id] = false;
       stopStream(tower.id);
+      uiStore.setTowerStreamActive(tower.id, false);
     }
   }
 
@@ -873,11 +884,19 @@
     if (!detectUrl) return;
     const snapUrl = tower?.apiBase ? `${tower.apiBase}/camera/snapshot` : '';
     if (!snapUrl) return;
-    loading.value[`${tower.id}-py`] = true;
+    const id = tower.id;
+
+    // Clear any pending auto-clear timer for this tower
+    if (detectAutoClearTimers.value[id]) {
+      clearTimeout(detectAutoClearTimers.value[id]);
+      delete detectAutoClearTimers.value[id];
+    }
+
+    loading.value[`${id}-py`] = true;
     try {
       const snapRes = await fetch(snapUrl, { cache: 'no-store' });
       if (!snapRes.ok) {
-        pythonResults.value[tower.id] = {
+        pythonResults.value[id] = {
           error: `Snapshot failed ${snapRes.status}`,
         };
         return;
@@ -887,24 +906,59 @@
       fd.append('file', new File([blob], 'frame.jpg', { type: 'image/jpeg' }));
       const res = await fetch(detectUrl, { method: 'POST', body: fd });
       if (!res.ok) {
-        pythonResults.value[tower.id] = {
+        pythonResults.value[id] = {
           error: `Detect failed ${res.status}`,
         };
         return;
       }
       const data = await res.json();
-      pythonResults.value[tower.id] = normalizePythonResult(data);
+      pythonResults.value[id] = normalizePythonResult(data);
+
+      // Schedule auto-clear after 3s if enabled
+      if (uiStore.resultsAutoClear[id] !== false) {
+        detectAutoClearTimers.value[id] = setTimeout(() => {
+          // Clear python result (bbox + label)
+          const pyCopy = { ...pythonResults.value };
+          delete pyCopy[id];
+          pythonResults.value = pyCopy;
+          // Bump reset key so TowerDetails clears its state
+          const rk = { ...rollResetKey.value };
+          rk[id] = (rk[id] || 0) + 1;
+          rollResetKey.value = rk;
+          // Clean up timer ref
+          delete detectAutoClearTimers.value[id];
+        }, 3000);
+      }
     } catch (e) {
-      pythonResults.value[tower.id] = { error: String(e) };
+      pythonResults.value[id] = { error: String(e) };
     } finally {
-      loading.value[`${tower.id}-py`] = false;
+      loading.value[`${id}-py`] = false;
     }
   }
 
   onMounted(() => {
     towers.value.forEach(t => {
       pingStatus(t);
+      // Restore stream for towers that were previously expanded
+      if (uiStore.towerDetailsExpanded[t.id]) {
+        // Only start stream if not already active (avoid double-open)
+        if (!uiStore.towerStreamActive[t.id]) {
+          streamEnabled.value[t.id] = true;
+          refreshStream(t);
+          uiStore.setTowerStreamActive(t.id, true);
+        }
+      }
     });
+  });
+
+  onBeforeUnmount(async () => {
+    // Stop all active streams when leaving the tab
+    for (const t of towers.value) {
+      if (uiStore.towerStreamActive[t.id]) {
+        await stopStream(t.id);
+        uiStore.setTowerStreamActive(t.id, false);
+      }
+    }
   });
 
   function openEdit(tower) {
@@ -954,7 +1008,7 @@
     // reopening the MJPEG stream when we just change the player.
     const newStreamUrl = editForm.value.streamUrl || '';
     const streamChanged = newStreamUrl && newStreamUrl !== prevStreamUrl;
-    if (expanded.value[editForm.value.id] && streamChanged) {
+    if (uiStore.towerDetailsExpanded[editForm.value.id] && streamChanged) {
       streamSrc.value[editForm.value.id] = newStreamUrl;
     }
     editDialog.value = false;
@@ -1027,6 +1081,11 @@
     if (!tower?.id) return;
     const id = tower.id;
     clearRollSession(id);
+    // Clear any pending auto-clear timer from pure detect
+    if (detectAutoClearTimers.value[id]) {
+      clearTimeout(detectAutoClearTimers.value[id]);
+      delete detectAutoClearTimers.value[id];
+    }
     // Clear last Python result so bbox and label disappear when user cancels roll
     const pyCopy = { ...pythonResults.value };
     delete pyCopy[id];
