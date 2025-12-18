@@ -121,220 +121,221 @@
         <div class="dc-value">—</div>
       </div>
 
-      <!-- Dice area -->
-      <div class="dice-area">
-        <div class="dice-row">
-          <!-- First die (or only die for normal) -->
-          <div
-            class="d20-wrapper"
-            :class="getDiceClass(0)"
-          >
+      <!-- Dice + bonuses row -->
+      <div class="dice-bonus-row">
+        <!-- Dice area -->
+        <div class="dice-area">
+          <div class="dice-row">
+            <!-- First die (or only die for normal) -->
             <div
-              class="d20-glow"
-              :class="getDiceGlowClass(0)"
-            ></div>
-            <svg
-              viewBox="0 0 100 115"
-              class="d20-svg"
+              class="d20-wrapper"
+              :class="getDiceClass(0)"
             >
-              <polygon
-                class="d20-bg"
-                points="50,2 98,28 98,87 50,113 2,87 2,28"
-              />
-              <polygon
-                class="d20-face"
-                :class="getDiceFaceClass(0)"
-                points="50,10 90,32 90,83 50,105 10,83 10,32"
-              />
-              <line
-                class="d20-line"
-                x1="50"
-                y1="10"
-                x2="50"
-                y2="58"
-              />
-              <line
-                class="d20-line"
-                x1="50"
-                y1="58"
-                x2="10"
-                y2="32"
-              />
-              <line
-                class="d20-line"
-                x1="50"
-                y1="58"
-                x2="90"
-                y2="32"
-              />
-              <line
-                class="d20-line"
-                x1="50"
-                y1="58"
-                x2="10"
-                y2="83"
-              />
-              <line
-                class="d20-line"
-                x1="50"
-                y1="58"
-                x2="90"
-                y2="83"
-              />
-              <line
-                class="d20-line"
-                x1="50"
-                y1="58"
-                x2="50"
-                y2="105"
-              />
-              <text
-                x="50"
-                y="48"
-                class="d20-number"
-                :class="getDiceTextClass(0)"
+              <div
+                class="d20-glow"
+                :class="getDiceGlowClass(0)"
+              ></div>
+              <svg
+                viewBox="0 0 100 115"
+                class="d20-svg"
               >
-                {{ getDiceValue(0) }}
-              </text>
-            </svg>
+                <polygon
+                  class="d20-bg"
+                  points="50,2 98,28 98,87 50,113 2,87 2,28"
+                />
+                <polygon
+                  class="d20-face"
+                  :class="getDiceFaceClass(0)"
+                  points="50,10 90,32 90,83 50,105 10,83 10,32"
+                />
+                <line
+                  class="d20-line"
+                  x1="50"
+                  y1="10"
+                  x2="50"
+                  y2="58"
+                />
+                <line
+                  class="d20-line"
+                  x1="50"
+                  y1="58"
+                  x2="10"
+                  y2="32"
+                />
+                <line
+                  class="d20-line"
+                  x1="50"
+                  y1="58"
+                  x2="90"
+                  y2="32"
+                />
+                <line
+                  class="d20-line"
+                  x1="50"
+                  y1="58"
+                  x2="10"
+                  y2="83"
+                />
+                <line
+                  class="d20-line"
+                  x1="50"
+                  y1="58"
+                  x2="90"
+                  y2="83"
+                />
+                <line
+                  class="d20-line"
+                  x1="50"
+                  y1="58"
+                  x2="50"
+                  y2="105"
+                />
+                <text
+                  x="50"
+                  y="48"
+                  class="d20-number"
+                  :class="getDiceTextClass(0)"
+                >
+                  {{ getDiceValue(0) }}
+                </text>
+              </svg>
+            </div>
+
+            <!-- Second die for advantage/disadvantage -->
+            <div
+              v-if="isAdvDis"
+              class="d20-wrapper"
+              :class="getDiceClass(1)"
+            >
+              <div
+                class="d20-glow"
+                :class="getDiceGlowClass(1)"
+              ></div>
+              <svg
+                viewBox="0 0 100 115"
+                class="d20-svg"
+              >
+                <polygon
+                  class="d20-bg"
+                  points="50,2 98,28 98,87 50,113 2,87 2,28"
+                />
+                <polygon
+                  class="d20-face"
+                  :class="getDiceFaceClass(1)"
+                  points="50,10 90,32 90,83 50,105 10,83 10,32"
+                />
+                <line
+                  class="d20-line"
+                  x1="50"
+                  y1="10"
+                  x2="50"
+                  y2="58"
+                />
+                <line
+                  class="d20-line"
+                  x1="50"
+                  y1="58"
+                  x2="10"
+                  y2="32"
+                />
+                <line
+                  class="d20-line"
+                  x1="50"
+                  y1="58"
+                  x2="90"
+                  y2="32"
+                />
+                <line
+                  class="d20-line"
+                  x1="50"
+                  y1="58"
+                  x2="10"
+                  y2="83"
+                />
+                <line
+                  class="d20-line"
+                  x1="50"
+                  y1="58"
+                  x2="90"
+                  y2="83"
+                />
+                <line
+                  class="d20-line"
+                  x1="50"
+                  y1="58"
+                  x2="50"
+                  y2="105"
+                />
+                <text
+                  x="50"
+                  y="48"
+                  class="d20-number"
+                  :class="getDiceTextClass(1)"
+                >
+                  {{ getDiceValue(1) }}
+                </text>
+              </svg>
+            </div>
+          </div>
+          <div
+            v-if="currentRoll.status === 'rolling'"
+            class="roll-prompt"
+          >
+            Бросок кубика...
+          </div>
+          <div
+            v-else
+            class="mode-badge"
+            :class="currentRoll.mode"
+          >
+            {{ modeLabel }}
+          </div>
+        </div>
+
+        <!-- Bonuses breakdown (visible for any active roll) -->
+        <div
+          v-if="currentRoll"
+          class="bonuses-section"
+        >
+          <div class="bonus-item">
+            <div class="bonus-icon ability-icon">
+              <span class="icon-symbol">⬡</span>
+            </div>
+            <div class="bonus-value">
+              {{ currentRoll.modifier >= 0 ? '+' : ''
+              }}{{ currentRoll.modifier }}
+            </div>
+            <div class="bonus-label">Модификатор</div>
           </div>
 
-          <!-- Second die for advantage/disadvantage -->
           <div
             v-if="isAdvDis"
-            class="d20-wrapper"
-            :class="getDiceClass(1)"
+            class="bonus-item"
           >
             <div
-              class="d20-glow"
-              :class="getDiceGlowClass(1)"
-            ></div>
-            <svg
-              viewBox="0 0 100 115"
-              class="d20-svg"
+              class="bonus-icon"
+              :class="
+                currentRoll.mode === 'advantage' ? 'adv-icon' : 'dis-icon'
+              "
             >
-              <polygon
-                class="d20-bg"
-                points="50,2 98,28 98,87 50,113 2,87 2,28"
-              />
-              <polygon
-                class="d20-face"
-                :class="getDiceFaceClass(1)"
-                points="50,10 90,32 90,83 50,105 10,83 10,32"
-              />
-              <line
-                class="d20-line"
-                x1="50"
-                y1="10"
-                x2="50"
-                y2="58"
-              />
-              <line
-                class="d20-line"
-                x1="50"
-                y1="58"
-                x2="10"
-                y2="32"
-              />
-              <line
-                class="d20-line"
-                x1="50"
-                y1="58"
-                x2="90"
-                y2="32"
-              />
-              <line
-                class="d20-line"
-                x1="50"
-                y1="58"
-                x2="10"
-                y2="83"
-              />
-              <line
-                class="d20-line"
-                x1="50"
-                y1="58"
-                x2="90"
-                y2="83"
-              />
-              <line
-                class="d20-line"
-                x1="50"
-                y1="58"
-                x2="50"
-                y2="105"
-              />
-              <text
-                x="50"
-                y="48"
-                class="d20-number"
-                :class="getDiceTextClass(1)"
-              >
-                {{ getDiceValue(1) }}
-              </text>
-            </svg>
+              <span class="icon-symbol">{{
+                currentRoll.mode === 'advantage' ? '▲' : '▼'
+              }}</span>
+            </div>
+            <div class="bonus-value situational">{{ modeLabel }}</div>
+            <div class="bonus-label">Ситуативный</div>
           </div>
-        </div>
-
-        <!-- Roll prompt or mode badge -->
-        <div
-          v-if="currentRoll.status === 'rolling'"
-          class="roll-prompt"
-        >
-          Бросок кубика...
-        </div>
-        <div
-          v-else
-          class="mode-badge"
-          :class="currentRoll.mode"
-        >
-          {{ modeLabel }}
         </div>
       </div>
 
-      <!-- Bonuses breakdown (only on result) -->
-      <div
-        v-if="currentRoll.status === 'result'"
-        class="bonuses-section"
-      >
-        <div class="bonus-item">
-          <div class="bonus-icon ability-icon">
-            <span class="icon-symbol">⬡</span>
-          </div>
-          <div class="bonus-value">
-            {{ currentRoll.modifier >= 0 ? '+' : '' }}{{ currentRoll.modifier }}
-          </div>
-          <div class="bonus-label">Модификатор</div>
-        </div>
-
-        <div
-          v-if="isAdvDis"
-          class="bonus-item"
-        >
-          <div
-            class="bonus-icon"
-            :class="currentRoll.mode === 'advantage' ? 'adv-icon' : 'dis-icon'"
-          >
-            <span class="icon-symbol">{{
-              currentRoll.mode === 'advantage' ? '▲' : '▼'
-            }}</span>
-          </div>
-          <div class="bonus-value situational">{{ modeLabel }}</div>
-          <div class="bonus-label">Ситуативный</div>
-        </div>
-      </div>
-
-      <!-- Total -->
-      <div
-        v-if="currentRoll.status === 'result'"
-        class="total-section"
-      >
+      <!-- Total (reserved space, value appears when result is ready) -->
+      <div class="total-section">
         <div class="total-label">Итого</div>
         <div
           class="total-value"
           :class="totalClass"
         >
-          {{ currentRoll.total }}
+          {{ totalDisplay }}
         </div>
       </div>
     </div>
@@ -426,6 +427,13 @@
     if (currentRoll.value?.isNat20) return 'total-crit';
     if (currentRoll.value?.isNat1) return 'total-fail';
     return '';
+  });
+
+  const totalDisplay = computed(() => {
+    if (currentRoll.value?.status === 'result') {
+      return currentRoll.value.total;
+    }
+    return '—';
   });
 
   // Get dice value for display
@@ -767,6 +775,14 @@
   }
 
   /* === DICE AREA === */
+  .dice-bonus-row {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    width: 100%;
+  }
+
   .dice-area {
     display: flex;
     flex-direction: column;
@@ -779,7 +795,32 @@
     );
     border: 1px solid rgba(180, 160, 120, 0.2);
     border-radius: 12px;
+    /* Reserve height so chosen die animation doesn't grow the box */
+    min-height: 239px;
     position: relative;
+  }
+
+  /* Landscape: put dice and bonuses in one row (tablet / desktop) */
+  @media (orientation: landscape) and (min-width: 768px) {
+    .dice-bonus-row {
+      flex-direction: row;
+      justify-content: center;
+      align-items: stretch;
+      gap: 32px;
+    }
+
+    .dice-area,
+    .bonuses-section {
+      flex: 0 0 320px;
+      max-width: 320px;
+      height: 239px; /* match dice box height */
+    }
+
+    .bonuses-section {
+      margin-top: 0;
+      justify-content: center;
+      align-items: center;
+    }
   }
 
   .dice-area::before {
@@ -1026,7 +1067,6 @@
   .bonuses-section {
     display: flex;
     gap: 32px;
-    margin-top: 24px;
     padding: 16px 24px;
     background: linear-gradient(
       180deg,
@@ -1106,6 +1146,7 @@
     align-items: center;
     gap: 16px;
     margin-top: 16px;
+    min-height: 80px;
     padding: 12px 32px;
     background: linear-gradient(
       180deg,
