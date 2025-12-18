@@ -135,18 +135,66 @@
               >
                 <div class="d-flex align-center justify-space-between mb-1">
                   <div class="text-body-2">Live Stream</div>
-                  <div class="d-flex align-center text-caption">
-                    <span class="mr-2">Results auto clear</span>
-                    <v-switch
-                      :model-value="uiStore.resultsAutoClear[t.id] !== false"
-                      @update:model-value="
-                        val => uiStore.setResultsAutoClear(t.id, val)
-                      "
-                      hide-details
-                      inset
-                      density="compact"
-                      class="results-auto-clear-switch"
-                    />
+                  <div class="d-flex align-center text-caption ga-3">
+                    <div class="d-flex align-center">
+                      <span class="mr-2">Difficulty Class</span>
+                      <v-switch
+                        :model-value="
+                          uiStore.difficultyClassEnabled[t.id] === true
+                        "
+                        @update:model-value="
+                          val => uiStore.setDifficultyClassEnabled(t.id, val)
+                        "
+                        hide-details
+                        inset
+                        density="compact"
+                        class="dc-enabled-switch"
+                      />
+                      <v-text-field
+                        v-if="uiStore.difficultyClassEnabled[t.id] === true"
+                        :model-value="uiStore.difficultyClassValue[t.id] || ''"
+                        @update:model-value="
+                          val => {
+                            console.log('[TowerGrid] DC value changed:', {
+                              towerId: t.id,
+                              value: val,
+                              type: typeof val,
+                            });
+                            uiStore.setDifficultyClassValue(t.id, val);
+                          }
+                        "
+                        @blur="
+                          () => {
+                            const val = uiStore.difficultyClassValue[t.id];
+                            console.log('[TowerGrid] DC value on blur:', {
+                              towerId: t.id,
+                              value: val,
+                            });
+                          }
+                        "
+                        type="number"
+                        hide-details
+                        density="compact"
+                        variant="outlined"
+                        class="dc-value-input ml-2"
+                        style="max-width: 80px"
+                        min="1"
+                        max="30"
+                      />
+                    </div>
+                    <div class="d-flex align-center">
+                      <span class="mr-2">Results auto clear</span>
+                      <v-switch
+                        :model-value="uiStore.resultsAutoClear[t.id] !== false"
+                        @update:model-value="
+                          val => uiStore.setResultsAutoClear(t.id, val)
+                        "
+                        hide-details
+                        inset
+                        density="compact"
+                        class="results-auto-clear-switch"
+                      />
+                    </div>
                   </div>
                 </div>
                 <TowerDetails
@@ -1232,6 +1280,19 @@
               const chosenValue =
                 session.mode === 'advantage' ? vals[1] : vals[0];
               const total = chosenValue + (session.modifier || 0);
+
+              // Get difficulty class value if enabled
+              const isDcEnabled = uiStore.difficultyClassEnabled[id] === true;
+              const dcValueRaw = uiStore.difficultyClassValue[id];
+              let dcValue = null;
+
+              if (isDcEnabled && dcValueRaw != null) {
+                const numValue = Number(dcValueRaw);
+                if (!isNaN(numValue) && numValue >= 1 && numValue <= 30) {
+                  dcValue = numValue;
+                }
+              }
+
               rollBroadcast.showResult({
                 mode: session.mode,
                 playerName: session.playerName,
@@ -1242,6 +1303,7 @@
                 total,
                 isNat1: chosenValue === 1,
                 isNat20: chosenValue === 20,
+                difficultyClass: dcValue,
               });
 
               scheduleAutoClear(id);
@@ -1366,18 +1428,37 @@
     // Broadcast rolling state to player screen
     const pyUrl = tower?.pyServerUrl || pyServerUrl || '';
     rollBroadcast.setServerUrl(pyUrl);
+
+    // Get difficulty class value if enabled
+    const isDcEnabled = uiStore.difficultyClassEnabled[tower.id] === true;
+    const dcValueRaw = uiStore.difficultyClassValue[tower.id];
+    let dcValue = null;
+
+    if (isDcEnabled && dcValueRaw != null) {
+      const numValue = Number(dcValueRaw);
+      if (!isNaN(numValue) && numValue >= 1 && numValue <= 30) {
+        dcValue = numValue;
+      }
+    }
+
     console.log('[TowerGrid] Broadcasting startRolling:', {
       mode: session.mode,
       playerName,
       label,
       modifier,
+      difficultyClass: dcValue,
+      isDcEnabled,
+      dcValueRaw,
+      towerId: tower.id,
       server: pyUrl,
     });
+
     rollBroadcast.startRolling({
       mode: session.mode,
       playerName,
       label,
       modifier,
+      difficultyClass: dcValue,
     });
 
     runRollLoop(tower);

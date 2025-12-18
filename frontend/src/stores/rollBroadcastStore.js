@@ -165,6 +165,7 @@ export const useRollBroadcastStore = defineStore('rollBroadcast', () => {
       total: null,
       isNat1: false,
       isNat20: false,
+      difficultyClass: payload.difficultyClass ?? null,
     };
     currentRoll.value = data;
     postRoll(data);
@@ -184,6 +185,7 @@ export const useRollBroadcastStore = defineStore('rollBroadcast', () => {
       total: payload.total ?? null,
       isNat1: payload.isNat1 ?? false,
       isNat20: payload.isNat20 ?? false,
+      difficultyClass: payload.difficultyClass ?? currentRoll.value?.difficultyClass ?? null,
     };
     currentRoll.value = data;
     postRoll(data);

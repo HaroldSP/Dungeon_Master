@@ -283,6 +283,7 @@ class RollData(BaseModel):
     total: Optional[int] = None
     isNat1: bool = False
     isNat20: bool = False
+    difficultyClass: Optional[int] = None  # Difficulty Class value (1-30)
 
 # In-memory storage for current roll
 current_roll: Optional[dict] = None

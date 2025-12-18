@@ -152,10 +152,16 @@
         <div class="check-subtitle">{{ checkSubtitle }}</div>
       </div>
 
-      <!-- Difficulty Class placeholder -->
+      <!-- Difficulty Class -->
       <div class="dc-section">
         <div class="dc-label">DIFFICULTY<br />CLASS</div>
-        <div class="dc-value">—</div>
+        <div class="dc-value">
+          {{
+            currentRoll?.difficultyClass != null
+              ? currentRoll.difficultyClass
+              : '—'
+          }}
+        </div>
       </div>
 
       <!-- Dice + bonuses row -->
