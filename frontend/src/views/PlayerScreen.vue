@@ -1,5 +1,9 @@
 <template>
-  <div class="player-screen">
+  <div
+    class="player-screen"
+    @dblclick="onFullscreenToggle"
+    @touchend="onFullscreenTouchEnd"
+  >
     <!-- Connection status indicator (visible when server URL exists, auto-hides after connected) -->
     <div
       v-if="!serverError && !statusHidden"
@@ -459,6 +463,64 @@
     return url;
   });
   const serverError = ref('');
+
+  // Fullscreen toggle helpers
+  const isFullscreenActive = () => {
+    return !!(
+      document.fullscreenElement ||
+      document.webkitFullscreenElement ||
+      document.msFullscreenElement
+    );
+  };
+
+  const enterFullscreen = () => {
+    const elem = document.documentElement;
+    if (elem.requestFullscreen) {
+      elem.requestFullscreen().catch(err => {
+        console.log('[PlayerScreen] Fullscreen request failed:', err);
+      });
+    } else if (elem.webkitRequestFullscreen) {
+      // Safari
+      elem.webkitRequestFullscreen();
+    } else if (elem.msRequestFullscreen) {
+      // IE/Edge
+      elem.msRequestFullscreen();
+    }
+  };
+
+  const exitFullscreen = () => {
+    if (document.exitFullscreen) {
+      document.exitFullscreen().catch(err => {
+        console.log('[PlayerScreen] Exit fullscreen failed:', err);
+      });
+    } else if (document.webkitExitFullscreen) {
+      document.webkitExitFullscreen();
+    } else if (document.msExitFullscreen) {
+      document.msExitFullscreen();
+    }
+  };
+
+  const onFullscreenToggle = () => {
+    if (isFullscreenActive()) {
+      exitFullscreen();
+    } else {
+      enterFullscreen();
+    }
+  };
+
+  // Double-tap detection for touch devices
+  let lastTouchTime = 0;
+  const onFullscreenTouchEnd = event => {
+    const now = Date.now();
+    if (now - lastTouchTime < 350) {
+      // Double-tap detected
+      lastTouchTime = 0;
+      event.preventDefault();
+      onFullscreenToggle();
+    } else {
+      lastTouchTime = now;
+    }
+  };
 
   onMounted(() => {
     if (serverUrl.value) {
