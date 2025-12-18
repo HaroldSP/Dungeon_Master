@@ -153,9 +153,21 @@
       </div>
 
       <!-- Difficulty Class -->
-      <div class="dc-section">
+      <div
+        class="dc-section"
+        :class="{
+          'dc-success': checkResult === 'success' && showDcGlow,
+          'dc-failure': checkResult === 'failure' && showDcGlow,
+        }"
+      >
         <div class="dc-label">DIFFICULTY<br />CLASS</div>
-        <div class="dc-value">
+        <div
+          class="dc-value"
+          :class="{
+            'dc-value-success': checkResult === 'success',
+            'dc-value-failure': checkResult === 'failure',
+          }"
+        >
           {{
             currentRoll?.difficultyClass != null
               ? currentRoll.difficultyClass
@@ -438,7 +450,13 @@
       </div>
 
       <!-- Total (reserved space, value appears when result is ready) -->
-      <div class="total-section">
+      <div
+        class="total-section"
+        :class="{
+          'check-success': checkResult === 'success',
+          'check-failure': checkResult === 'failure',
+        }"
+      >
         <div class="total-label">Итого</div>
         <div
           class="total-value"
@@ -588,6 +606,45 @@
       return label.replace(/\s*проверка\s*/i, '').trim();
     }
     return label;
+  });
+
+  const checkResult = computed(() => {
+    if (currentRoll.value?.status !== 'result') return null;
+    const total = currentRoll.value?.total;
+    const dc = currentRoll.value?.difficultyClass;
+
+    if (total == null || dc == null) return null;
+
+    if (total >= dc) return 'success';
+    return 'failure';
+  });
+
+  // Track DC glow state (remove after several breaths)
+  const showDcGlow = ref(false);
+  let dcGlowTimeout = null;
+
+  watch(checkResult, newResult => {
+    if (newResult) {
+      // Show DC glow
+      showDcGlow.value = true;
+
+      // Clear existing timeout
+      if (dcGlowTimeout) {
+        clearTimeout(dcGlowTimeout);
+      }
+
+      // Remove DC glow after 2-3 animation cycles (3 breaths * 3s = 9 seconds)
+      dcGlowTimeout = setTimeout(() => {
+        showDcGlow.value = false;
+      }, 9000);
+    } else {
+      // Reset when result is cleared
+      showDcGlow.value = false;
+      if (dcGlowTimeout) {
+        clearTimeout(dcGlowTimeout);
+        dcGlowTimeout = null;
+      }
+    }
   });
 
   const totalClass = computed(() => {
@@ -939,6 +996,49 @@
     font-weight: 700;
     color: #f4e4c1;
     margin-top: 4px;
+    transition: all 0.3s ease;
+  }
+
+  .dc-value.dc-value-success {
+    color: #6ade6a;
+    text-shadow: 0 0 20px rgba(100, 200, 100, 0.6);
+  }
+
+  .dc-value.dc-value-failure {
+    color: #de6a6a;
+    text-shadow: 0 0 20px rgba(200, 80, 80, 0.6);
+  }
+
+  .dc-section.dc-success {
+    border-color: rgba(100, 200, 100, 0.5);
+    box-shadow: 0 0 20px rgba(100, 200, 100, 0.3);
+    animation: dcSuccessGlow 3s cubic-bezier(0.4, 0, 0.2, 1) 3;
+  }
+
+  .dc-section.dc-failure {
+    border-color: rgba(200, 80, 80, 0.5);
+    box-shadow: 0 0 20px rgba(200, 80, 80, 0.3);
+    animation: dcFailureGlow 3s cubic-bezier(0.4, 0, 0.2, 1) 3;
+  }
+
+  @keyframes dcSuccessGlow {
+    0%,
+    100% {
+      box-shadow: 0 0 20px rgba(100, 200, 100, 0.3);
+    }
+    50% {
+      box-shadow: 0 0 35px rgba(100, 200, 100, 0.5);
+    }
+  }
+
+  @keyframes dcFailureGlow {
+    0%,
+    100% {
+      box-shadow: 0 0 20px rgba(200, 80, 80, 0.3);
+    }
+    50% {
+      box-shadow: 0 0 35px rgba(200, 80, 80, 0.5);
+    }
   }
 
   /* === DICE AREA === */
@@ -1377,5 +1477,68 @@
   .total-value.total-fail {
     color: #de6a6a;
     text-shadow: 0 0 20px rgba(200, 80, 80, 0.5);
+  }
+
+  /* BG3-style success animation for section - slower and smoother */
+  @keyframes successPulse {
+    0% {
+      box-shadow: 0 0 25px rgba(100, 200, 100, 0.35);
+    }
+    50% {
+      box-shadow: 0 0 45px rgba(100, 200, 100, 0.65);
+    }
+    100% {
+      box-shadow: 0 0 25px rgba(100, 200, 100, 0.35);
+    }
+  }
+
+  /* BG3-style failure animation for section - slower and smoother */
+  @keyframes failurePulse {
+    0% {
+      box-shadow: 0 0 25px rgba(200, 80, 80, 0.35);
+    }
+    50% {
+      box-shadow: 0 0 45px rgba(200, 80, 80, 0.65);
+    }
+    100% {
+      box-shadow: 0 0 25px rgba(200, 80, 80, 0.35);
+    }
+  }
+
+  /* Total section glow effects - infinite breathing, slower and smoother */
+  .total-section.check-success {
+    border-color: rgba(100, 200, 100, 0.6);
+    animation: successPulse 3s cubic-bezier(0.4, 0, 0.2, 1) infinite,
+      successGlow 3s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+
+  .total-section.check-failure {
+    border-color: rgba(200, 80, 80, 0.6);
+    animation: failurePulse 3s cubic-bezier(0.4, 0, 0.2, 1) infinite,
+      failureGlow 3s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+
+  @keyframes successGlow {
+    0% {
+      box-shadow: 0 0 15px rgba(100, 200, 100, 0.25);
+    }
+    50% {
+      box-shadow: 0 0 40px rgba(100, 200, 100, 0.6);
+    }
+    100% {
+      box-shadow: 0 0 15px rgba(100, 200, 100, 0.25);
+    }
+  }
+
+  @keyframes failureGlow {
+    0% {
+      box-shadow: 0 0 15px rgba(200, 80, 80, 0.25);
+    }
+    50% {
+      box-shadow: 0 0 40px rgba(200, 80, 80, 0.6);
+    }
+    100% {
+      box-shadow: 0 0 15px rgba(200, 80, 80, 0.25);
+    }
   }
 </style>
