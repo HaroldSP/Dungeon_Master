@@ -33,59 +33,91 @@
           viewBox="0 0 100 115"
           class="d20-svg"
         >
+          <!-- Outer shadow border (inset slightly so stroke isn't clipped by viewBox) -->
+          <polygon
+            class="d20-shadow"
+            points="50,4 96,27 96,88 50,111 4,88 4,27"
+          />
+          <!-- Outer silhouette (full D20 contour) -->
           <polygon
             class="d20-bg"
-            points="50,2 98,28 98,87 50,113 2,87 2,28"
+            points="50,8 92,32 92,83 50,107 8,83 8,32"
           />
+          <!-- Top triangle face (sharp side up, main front face) -->
           <polygon
             class="d20-face"
-            points="50,10 90,32 90,83 50,105 10,83 10,32"
+            points="50,30 16,78 84,78"
           />
+          <!-- Triangle-to-contour connections (each triangle corner -> three contour corners) -->
+          <!-- Top vertex connections -->
           <line
             class="d20-line"
             x1="50"
-            y1="10"
+            y1="29"
             x2="50"
-            y2="58"
+            y2="9"
           />
           <line
             class="d20-line"
             x1="50"
-            y1="58"
-            x2="10"
-            y2="32"
-          />
-          <line
-            class="d20-line"
-            x1="50"
-            y1="58"
+            y1="29"
             x2="90"
             y2="32"
           />
           <line
             class="d20-line"
             x1="50"
-            y1="58"
-            x2="10"
-            y2="83"
+            y1="29"
+            x2="9"
+            y2="33"
+          />
+          <!-- Bottom-left vertex connections -->
+          <line
+            class="d20-line"
+            x1="14"
+            y1="79"
+            x2="9"
+            y2="33"
           />
           <line
             class="d20-line"
-            x1="50"
-            y1="58"
-            x2="90"
-            y2="83"
+            x1="14"
+            y1="79"
+            x2="9"
+            y2="82"
           />
           <line
             class="d20-line"
-            x1="50"
-            y1="58"
+            x1="14"
+            y1="79"
             x2="50"
-            y2="105"
+            y2="106"
+          />
+          <!-- Bottom-right vertex connections -->
+          <line
+            class="d20-line"
+            x1="86"
+            y1="79"
+            x2="91"
+            y2="32"
+          />
+          <line
+            class="d20-line"
+            x1="86"
+            y1="79"
+            x2="91"
+            y2="82"
+          />
+          <line
+            class="d20-line"
+            x1="86"
+            y1="79"
+            x2="50"
+            y2="106"
           />
           <text
             x="50"
-            y="48"
+            y="67"
             class="d20-number"
           >
             20
@@ -139,60 +171,92 @@
                 viewBox="0 0 100 115"
                 class="d20-svg"
               >
+                <!-- Outer shadow border (inset slightly so stroke isn't clipped by viewBox) -->
+                <polygon
+                  class="d20-shadow"
+                  points="50,4 96,27 96,88 50,111 4,88 4,27"
+                />
+                <!-- Outer silhouette (full D20 contour) -->
                 <polygon
                   class="d20-bg"
-                  points="50,2 98,28 98,87 50,113 2,87 2,28"
+                  points="50,8 92,32 92,83 50,107 8,83 8,32"
                 />
+                <!-- Top triangle face (sharp side up, main front face) -->
                 <polygon
                   class="d20-face"
                   :class="getDiceFaceClass(0)"
-                  points="50,10 90,32 90,83 50,105 10,83 10,32"
+                  points="50,30 16,78 84,78"
                 />
+                <!-- Triangle-to-contour connections (each triangle corner -> three contour corners) -->
+                <!-- Top vertex connections -->
                 <line
                   class="d20-line"
                   x1="50"
-                  y1="10"
+                  y1="29"
                   x2="50"
-                  y2="58"
+                  y2="9"
                 />
                 <line
                   class="d20-line"
                   x1="50"
-                  y1="58"
-                  x2="10"
-                  y2="32"
-                />
-                <line
-                  class="d20-line"
-                  x1="50"
-                  y1="58"
+                  y1="29"
                   x2="90"
                   y2="32"
                 />
                 <line
                   class="d20-line"
                   x1="50"
-                  y1="58"
-                  x2="10"
-                  y2="83"
+                  y1="29"
+                  x2="9"
+                  y2="33"
+                />
+                <!-- Bottom-left vertex connections -->
+                <line
+                  class="d20-line"
+                  x1="14"
+                  y1="79"
+                  x2="9"
+                  y2="33"
                 />
                 <line
                   class="d20-line"
-                  x1="50"
-                  y1="58"
-                  x2="90"
-                  y2="83"
+                  x1="14"
+                  y1="79"
+                  x2="9"
+                  y2="82"
                 />
                 <line
                   class="d20-line"
-                  x1="50"
-                  y1="58"
+                  x1="14"
+                  y1="79"
                   x2="50"
-                  y2="105"
+                  y2="106"
+                />
+                <!-- Bottom-right vertex connections -->
+                <line
+                  class="d20-line"
+                  x1="86"
+                  y1="79"
+                  x2="91"
+                  y2="32"
+                />
+                <line
+                  class="d20-line"
+                  x1="86"
+                  y1="79"
+                  x2="91"
+                  y2="82"
+                />
+                <line
+                  class="d20-line"
+                  x1="86"
+                  y1="79"
+                  x2="50"
+                  y2="106"
                 />
                 <text
                   x="50"
-                  y="48"
+                  y="67"
                   class="d20-number"
                   :class="getDiceTextClass(0)"
                 >
@@ -215,60 +279,92 @@
                 viewBox="0 0 100 115"
                 class="d20-svg"
               >
+                <!-- Outer shadow border (inset slightly so stroke isn't clipped by viewBox) -->
+                <polygon
+                  class="d20-shadow"
+                  points="50,4 96,27 96,88 50,111 4,88 4,27"
+                />
+                <!-- Outer silhouette (full D20 contour) -->
                 <polygon
                   class="d20-bg"
-                  points="50,2 98,28 98,87 50,113 2,87 2,28"
+                  points="50,8 92,32 92,83 50,107 8,83 8,32"
                 />
+                <!-- Top triangle face (sharp side up, main front face) -->
                 <polygon
                   class="d20-face"
                   :class="getDiceFaceClass(1)"
-                  points="50,10 90,32 90,83 50,105 10,83 10,32"
+                  points="50,30 16,78 84,78"
                 />
+                <!-- Triangle-to-contour connections (each triangle corner -> three contour corners) -->
+                <!-- Top vertex connections -->
                 <line
                   class="d20-line"
                   x1="50"
-                  y1="10"
+                  y1="29"
                   x2="50"
-                  y2="58"
+                  y2="9"
                 />
                 <line
                   class="d20-line"
                   x1="50"
-                  y1="58"
-                  x2="10"
-                  y2="32"
-                />
-                <line
-                  class="d20-line"
-                  x1="50"
-                  y1="58"
+                  y1="29"
                   x2="90"
                   y2="32"
                 />
                 <line
                   class="d20-line"
                   x1="50"
-                  y1="58"
-                  x2="10"
-                  y2="83"
+                  y1="29"
+                  x2="9"
+                  y2="33"
+                />
+                <!-- Bottom-left vertex connections -->
+                <line
+                  class="d20-line"
+                  x1="14"
+                  y1="79"
+                  x2="9"
+                  y2="33"
                 />
                 <line
                   class="d20-line"
-                  x1="50"
-                  y1="58"
-                  x2="90"
-                  y2="83"
+                  x1="14"
+                  y1="79"
+                  x2="9"
+                  y2="82"
                 />
                 <line
                   class="d20-line"
-                  x1="50"
-                  y1="58"
+                  x1="14"
+                  y1="79"
                   x2="50"
-                  y2="105"
+                  y2="106"
+                />
+                <!-- Bottom-right vertex connections -->
+                <line
+                  class="d20-line"
+                  x1="86"
+                  y1="79"
+                  x2="91"
+                  y2="32"
+                />
+                <line
+                  class="d20-line"
+                  x1="86"
+                  y1="79"
+                  x2="91"
+                  y2="82"
+                />
+                <line
+                  class="d20-line"
+                  x1="86"
+                  y1="79"
+                  x2="50"
+                  y2="106"
                 />
                 <text
                   x="50"
-                  y="48"
+                  y="67"
                   class="d20-number"
                   :class="getDiceTextClass(1)"
                 >
@@ -691,7 +787,7 @@
 
   .idle-state .d20-wrapper {
     opacity: 0.4;
-    transform: scale(1.2);
+    transform: scale(1.6); /* idle die larger than active ones */
   }
 
   /* === ROLL CONTAINER === */
@@ -699,9 +795,9 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 16px;
-    padding: 24px;
-    max-width: 400px;
+    gap: 24px;
+    padding: 32px;
+    max-width: 520px;
   }
 
   /* === HEADER === */
@@ -725,7 +821,7 @@
 
   .check-title {
     font-family: 'Cinzel', serif;
-    font-size: 28px;
+    font-size: 32px;
     font-weight: 600;
     color: #f4e4c1;
     text-transform: uppercase;
@@ -735,7 +831,7 @@
 
   .check-subtitle {
     font-family: 'Crimson Text', serif;
-    font-size: 18px;
+    font-size: 20px;
     color: #b8a88a;
     margin-top: 4px;
   }
@@ -768,7 +864,7 @@
 
   .dc-value {
     font-family: 'Cinzel', serif;
-    font-size: 32px;
+    font-size: 36px;
     font-weight: 700;
     color: #f4e4c1;
     margin-top: 4px;
@@ -787,7 +883,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 24px;
+    padding: 32px;
     background: linear-gradient(
       180deg,
       rgba(50, 40, 55, 0.6) 0%,
@@ -796,7 +892,7 @@
     border: 1px solid rgba(180, 160, 120, 0.2);
     border-radius: 12px;
     /* Reserve height so chosen die animation doesn't grow the box */
-    min-height: 239px;
+    min-height: 285px;
     position: relative;
   }
 
@@ -811,9 +907,9 @@
 
     .dice-area,
     .bonuses-section {
-      flex: 0 0 320px;
-      max-width: 320px;
-      height: 239px; /* match dice box height */
+      flex: 0 0 390px;
+      max-width: 390px;
+      height: 285px; /* match dice box height */
     }
 
     .bonuses-section {
@@ -838,6 +934,22 @@
     );
   }
 
+  /* Same golden shine for bonuses box */
+  .bonuses-section::before {
+    content: '';
+    position: absolute;
+    top: -1px;
+    left: 20%;
+    right: 20%;
+    height: 2px;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(200, 170, 100, 0.7),
+      transparent
+    );
+  }
+
   .dice-row {
     display: flex;
     gap: 24px;
@@ -846,8 +958,8 @@
 
   /* === D20 DICE === */
   .d20-wrapper {
-    width: 120px;
-    height: 138px;
+    width: 160px;
+    height: 182px;
     position: relative;
     transition: all 0.3s ease;
   }
@@ -856,8 +968,8 @@
     position: absolute;
     top: 50%;
     left: 50%;
-    width: 100px;
-    height: 100px;
+    width: 135px;
+    height: 135px;
     transform: translate(-50%, -50%);
     border-radius: 50%;
     background: radial-gradient(
@@ -925,8 +1037,14 @@
 
   .d20-bg {
     fill: #1a1520;
+    stroke: rgba(200, 170, 100, 0.4);
+    stroke-width: 1.5;
+  }
+
+  .d20-shadow {
+    fill: none;
     stroke: #3a3040;
-    stroke-width: 2;
+    stroke-width: 3;
   }
 
   .d20-face {
@@ -950,8 +1068,8 @@
   }
 
   .d20-line {
-    stroke: rgba(200, 170, 100, 0.15);
-    stroke-width: 0.5;
+    stroke: rgba(200, 170, 100, 0.18);
+    stroke-width: 0.8;
   }
 
   .d20-number {
@@ -1066,27 +1184,33 @@
   /* === BONUSES SECTION === */
   .bonuses-section {
     display: flex;
-    gap: 32px;
-    padding: 16px 24px;
+    gap: 40px;
+    padding: 22px 32px;
+    /* Match dice box background */
     background: linear-gradient(
       180deg,
-      rgba(40, 35, 45, 0.5) 0%,
-      rgba(25, 22, 30, 0.7) 100%
+      rgba(50, 40, 55, 0.6) 0%,
+      rgba(30, 25, 35, 0.8) 100%
     );
     border-radius: 8px;
-    border: 1px solid rgba(180, 160, 120, 0.15);
+    border: 1px solid rgba(180, 160, 120, 0.2); /* same as dice-area */
+    align-items: stretch; /* make all bonus columns same height */
+    position: relative; /* enable ::before shine inside box */
+    overflow: hidden; /* clip shine to rounded corners */
   }
 
   .bonus-item {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 4px;
+    justify-content: center; /* center icon/value/label vertically */
+    gap: 6px;
+    flex: 1 1 0; /* equal width columns so labels line up */
   }
 
   .bonus-icon {
-    width: 40px;
-    height: 40px;
+    width: 50px;
+    height: 50px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1100,7 +1224,7 @@
   }
 
   .icon-symbol {
-    font-size: 18px;
+    font-size: 22px;
     color: #c8aa64;
   }
 
@@ -1122,19 +1246,21 @@
 
   .bonus-value {
     font-family: 'Cinzel', serif;
-    font-size: 16px;
+    font-size: 22px;
     font-weight: 600;
     color: #f4e4c1;
+    line-height: 1.2;
+    min-height: 1.4em; /* ensure same vertical box for value text in both columns */
   }
 
   .bonus-value.situational {
-    font-size: 12px;
+    font-size: 22px; /* same visual size as numeric modifier */
     color: #b8a88a;
   }
 
   .bonus-label {
     font-family: 'Crimson Text', serif;
-    font-size: 11px;
+    font-size: 14px;
     color: #6a5a4a;
     text-transform: uppercase;
     letter-spacing: 1px;
@@ -1167,7 +1293,7 @@
 
   .total-value {
     font-family: 'Cinzel', serif;
-    font-size: 36px;
+    font-size: 40px;
     font-weight: 700;
     color: #f4e4c1;
     text-shadow: 0 2px 8px rgba(200, 170, 100, 0.3);
