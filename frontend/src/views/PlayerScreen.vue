@@ -123,6 +123,7 @@
             x="50"
             y="67"
             class="d20-number"
+            dominant-baseline="middle"
           >
             20
           </text>
@@ -263,6 +264,7 @@
                   y="67"
                   class="d20-number"
                   :class="getDiceTextClass(0)"
+                  dominant-baseline="middle"
                 >
                   {{ getDiceValue(0) }}
                 </text>
@@ -371,6 +373,7 @@
                   y="67"
                   class="d20-number"
                   :class="getDiceTextClass(1)"
+                  dominant-baseline="middle"
                 >
                   {{ getDiceValue(1) }}
                 </text>
@@ -1140,7 +1143,6 @@
     font-size: 28px;
     font-weight: 700;
     text-anchor: middle;
-    dominant-baseline: middle;
   }
 
   .d20-number.text-crit {
