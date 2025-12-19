@@ -5,6 +5,8 @@ const STORAGE_KEY_AUTO_CLEAR = 'ui.resultsAutoClear';
 const STORAGE_KEY_DETAILS_EXPANDED = 'ui.towerDetailsExpanded';
 const STORAGE_KEY_DC_ENABLED = 'ui.difficultyClassEnabled';
 const STORAGE_KEY_DC_VALUE = 'ui.difficultyClassValue';
+const STORAGE_KEY_PLAYER_SCREEN_MODE = 'ui.playerScreenMode';
+const STORAGE_KEY_PLAYER_SCREEN_BROWSER_URL = 'ui.playerScreenBrowserUrl';
 
 const loadDrawerState = () => {
   if (typeof localStorage === 'undefined') return false;
@@ -104,6 +106,27 @@ const persistDcValueState = map => {
   }
 };
 
+const loadPlayerScreenMode = () => {
+  if (typeof localStorage === 'undefined') return 'dice';
+  const raw = localStorage.getItem(STORAGE_KEY_PLAYER_SCREEN_MODE);
+  return raw === 'browser' || raw === 'map' || raw === 'dice' ? raw : 'dice';
+};
+
+const persistPlayerScreenMode = value => {
+  if (typeof localStorage === 'undefined') return;
+  localStorage.setItem(STORAGE_KEY_PLAYER_SCREEN_MODE, value || 'dice');
+};
+
+const loadPlayerScreenBrowserUrl = () => {
+  if (typeof localStorage === 'undefined') return '';
+  return localStorage.getItem(STORAGE_KEY_PLAYER_SCREEN_BROWSER_URL) || '';
+};
+
+const persistPlayerScreenBrowserUrl = value => {
+  if (typeof localStorage === 'undefined') return;
+  localStorage.setItem(STORAGE_KEY_PLAYER_SCREEN_BROWSER_URL, value || '');
+};
+
 export const useUiStore = defineStore('ui', {
   state: () => ({
     drawerMinimized: loadDrawerState(),
@@ -117,6 +140,10 @@ export const useUiStore = defineStore('ui', {
     difficultyClassEnabled: loadDcEnabledState(),
     // { [towerId]: number } – difficulty class value per tower
     difficultyClassValue: loadDcValueState(),
+    // Player screen display mode: 'dice', 'browser', or 'map'
+    playerScreenMode: loadPlayerScreenMode(),
+    // Browser URL for player screen browser mode
+    playerScreenBrowserUrl: loadPlayerScreenBrowserUrl(),
   }),
   actions: {
     setDrawerMinimized(value) {
@@ -175,6 +202,15 @@ export const useUiStore = defineStore('ui', {
       };
       persistDcValueState(this.difficultyClassValue);
       console.log('[uiStore] DC values after save:', this.difficultyClassValue);
+    },
+    setPlayerScreenMode(mode) {
+      if (mode !== 'dice' && mode !== 'browser' && mode !== 'map') return;
+      this.playerScreenMode = mode;
+      persistPlayerScreenMode(mode);
+    },
+    setPlayerScreenBrowserUrl(url) {
+      this.playerScreenBrowserUrl = url || '';
+      persistPlayerScreenBrowserUrl(url);
     },
   },
 });

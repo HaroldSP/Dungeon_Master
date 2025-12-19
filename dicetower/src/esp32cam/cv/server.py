@@ -289,6 +289,10 @@ class RollData(BaseModel):
 current_roll: Optional[dict] = None
 roll_timestamp: float = 0
 
+# In-memory storage for player screen mode
+player_screen_mode: str = 'dice'  # 'dice', 'browser', or 'map'
+player_screen_browser_url: str = ''
+
 # ============================================
 # WebSocket Connection Manager
 # ============================================
@@ -324,13 +328,21 @@ ws_manager = ConnectionManager()
 
 @app.websocket("/ws/roll")
 async def websocket_roll(websocket: WebSocket):
-    """WebSocket endpoint for real-time roll updates"""
+    """WebSocket endpoint for real-time roll updates and mode changes"""
     await ws_manager.connect(websocket)
     # Send current state immediately on connect
     if current_roll:
         await websocket.send_text(json.dumps({"type": "roll", "data": current_roll}))
     else:
         await websocket.send_text(json.dumps({"type": "clear"}))
+    # Send current player screen mode
+    await websocket.send_text(json.dumps({
+        "type": "mode",
+        "data": {
+            "mode": player_screen_mode,
+            "browserUrl": player_screen_browser_url
+        }
+    }))
     try:
         while True:
             # Keep connection alive, receive any messages (heartbeat)
@@ -369,6 +381,66 @@ async def clear_roll():
     # Broadcast clear to all WebSocket clients
     await ws_manager.broadcast({"type": "clear"})
     return {"ok": True}
+
+@app.post("/player-screen-mode")
+async def set_player_screen_mode(data: dict):
+    """Set player screen display mode and broadcast via WebSocket"""
+    global player_screen_mode, player_screen_browser_url
+    mode = data.get("mode", "dice")
+    browser_url = data.get("browserUrl", "")
+    
+    if mode not in ["dice", "browser", "map"]:
+        raise HTTPException(status_code=400, detail="Invalid mode. Must be 'dice', 'browser', or 'map'")
+    
+    player_screen_mode = mode
+    player_screen_browser_url = browser_url
+    print(f"[PlayerScreen] Mode set: {mode}, browserUrl: {browser_url}")
+    
+    # Broadcast mode change to all WebSocket clients
+    await ws_manager.broadcast({
+        "type": "mode",
+        "data": {
+            "mode": player_screen_mode,
+            "browserUrl": player_screen_browser_url
+        }
+    })
+    return {"ok": True, "mode": player_screen_mode, "browserUrl": player_screen_browser_url}
+
+@app.post("/youtube-playback")
+async def youtube_playback(data: dict):
+    """Handle YouTube playback commands (play/pause/seek) and broadcast via WebSocket"""
+    command = data.get("command")
+    position = data.get("position")
+    
+    if command == "seek":
+        if position is None or not isinstance(position, (int, float)):
+            raise HTTPException(status_code=400, detail="Position required for seek command")
+        print(f"[YouTube] Seek command: {position:.2f}s")
+        # Broadcast seek command to all WebSocket clients
+        await ws_manager.broadcast({
+            "type": "youtube_playback",
+            "data": {"command": "seek", "position": position}
+        })
+        return {"ok": True, "command": "seek", "position": position}
+    elif command in ["play", "pause"]:
+        print(f"[YouTube] Playback command: {command}")
+        # Broadcast playback command to all WebSocket clients
+        await ws_manager.broadcast({
+            "type": "youtube_playback",
+            "data": {"command": command}
+        })
+        return {"ok": True, "command": command}
+    else:
+        raise HTTPException(status_code=400, detail="Invalid command. Must be 'play', 'pause', or 'seek'")
+
+@app.get("/player-screen-mode")
+async def get_player_screen_mode():
+    """Get current player screen display mode"""
+    global player_screen_mode, player_screen_browser_url
+    return {
+        "mode": player_screen_mode,
+        "browserUrl": player_screen_browser_url
+    }
 
 if __name__ == "__main__":
     import uvicorn

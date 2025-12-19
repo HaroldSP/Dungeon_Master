@@ -5,6 +5,7 @@ import DiceTowers from '../views/DiceTowers.vue';
 import Players from '../views/Players.vue';
 import SpellMapper from '../views/SpellMapper.vue';
 import PlayerScreen from '../views/PlayerScreen.vue';
+import PlayerScreenSettings from '../views/PlayerScreenSettings.vue';
 
 const routes = [
   {
@@ -37,6 +38,11 @@ const routes = [
     name: 'PlayerScreen',
     component: PlayerScreen,
     meta: { hideNav: true }, // Hide navigation for fullscreen display
+  },
+  {
+    path: '/player-screen-settings',
+    name: 'PlayerScreenSettings',
+    component: PlayerScreenSettings,
   },
 ];
 

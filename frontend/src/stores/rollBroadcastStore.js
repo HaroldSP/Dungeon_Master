@@ -100,6 +100,16 @@ export const useRollBroadcastStore = defineStore('rollBroadcast', () => {
             currentRoll.value = msg.data;
           } else if (msg.type === 'clear') {
             currentRoll.value = null;
+          } else if (msg.type === 'mode' && msg.data) {
+            // Mode change received - emit event for PlayerScreen to handle
+            window.dispatchEvent(new CustomEvent('player-screen-mode-change', {
+              detail: msg.data
+            }));
+          } else if (msg.type === 'youtube_playback' && msg.data) {
+            // YouTube playback command received - emit event for PlayerScreen to handle
+            window.dispatchEvent(new CustomEvent('youtube-playback', {
+              detail: msg.data
+            }));
           }
         } catch (e) {
           console.error('[RollBroadcast] WS parse error:', e);
@@ -196,6 +206,28 @@ export const useRollBroadcastStore = defineStore('rollBroadcast', () => {
     deleteRoll();
   }
 
+  async function broadcastModeChange(mode, browserUrl = '') {
+    if (!baseUrl.value) {
+      console.warn('[RollBroadcast] No server URL configured for mode change');
+      return;
+    }
+    try {
+      const url = `${baseUrl.value}/player-screen-mode`;
+      const data = { mode, browserUrl };
+      console.log('[RollBroadcast] POST mode change:', url, data);
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        console.error('[RollBroadcast] Mode change POST failed:', res.status);
+      }
+    } catch (e) {
+      console.error('[RollBroadcast] Mode change POST error:', e);
+    }
+  }
+
   return {
     currentRoll,
     serverUrl,
@@ -209,5 +241,6 @@ export const useRollBroadcastStore = defineStore('rollBroadcast', () => {
     clearRoll,
     connectWebSocket,
     disconnectWebSocket,
+    broadcastModeChange,
   };
 });

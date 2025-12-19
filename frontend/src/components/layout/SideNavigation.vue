@@ -121,6 +121,11 @@
       title: 'Spell Mapper',
       icon: 'mdi-book-open-variant',
     },
+    {
+      path: '/player-screen-settings',
+      title: 'Player Screen',
+      icon: 'mdi-monitor',
+    },
   ];
 
   // Stores

@@ -26,7 +26,49 @@
       <div class="error-hint">Example: /player-screen?s=192.168.0.102:8003</div>
     </div>
 
-    <!-- Idle state - static D20, no text -->
+    <!-- Browser Mode -->
+    <div
+      v-else-if="displayMode === 'browser'"
+      class="browser-mode"
+      @dblclick="onFullscreenToggle"
+      @touchend="onFullscreenTouchEnd"
+    >
+      <div
+        v-if="embedUrl"
+        :id="playerScreenPlayerId"
+        class="browser-iframe youtube-player-container"
+      />
+      <div
+        v-else
+        class="browser-placeholder"
+      >
+        <div class="placeholder-icon">🌐</div>
+        <div class="placeholder-text">
+          {{ browserUrl ? 'URL cannot be embedded' : 'No URL configured' }}
+        </div>
+        <div class="placeholder-hint">
+          {{
+            browserUrl
+              ? 'YouTube homepage or invalid URL. Use a specific video URL like: https://www.youtube.com/watch?v=VIDEO_ID'
+              : 'Configure URL in Player Screen settings'
+          }}
+        </div>
+      </div>
+    </div>
+
+    <!-- Map Mode -->
+    <div
+      v-else-if="displayMode === 'map'"
+      class="map-mode"
+    >
+      <div class="map-placeholder">
+        <div class="placeholder-icon">🗺️</div>
+        <div class="placeholder-text">Map View</div>
+        <div class="placeholder-hint">Map display coming soon</div>
+      </div>
+    </div>
+
+    <!-- Dice Mode - Idle state - static D20, no text -->
     <div
       v-else-if="!currentRoll"
       class="idle-state"
@@ -131,9 +173,9 @@
       </div>
     </div>
 
-    <!-- Rolling / Result state -->
+    <!-- Dice Mode - Rolling / Result state -->
     <div
-      v-else
+      v-else-if="displayMode === 'dice'"
       class="roll-container"
     >
       <!-- Header with player context -->
@@ -479,6 +521,71 @@
   const rollStore = useRollBroadcastStore();
   const { currentRoll, isConnected, connectionError } = storeToRefs(rollStore);
 
+  // Display mode state
+  const displayMode = ref('dice'); // 'dice', 'browser', or 'map'
+  const browserUrl = ref('');
+
+  // Convert YouTube URL to embed format
+  const getEmbedUrl = url => {
+    if (!url) return '';
+
+    try {
+      const urlObj = new URL(url);
+
+      // Check if it's YouTube
+      if (
+        urlObj.hostname.includes('youtube.com') ||
+        urlObj.hostname.includes('youtu.be')
+      ) {
+        // If already embed format, return as is
+        if (urlObj.pathname.includes('/embed/')) {
+          return url;
+        }
+
+        // Extract video ID from various YouTube URL formats
+        let videoId = null;
+
+        // Format: youtube.com/watch?v=VIDEO_ID
+        if (urlObj.searchParams.has('v')) {
+          videoId = urlObj.searchParams.get('v');
+        }
+        // Format: youtu.be/VIDEO_ID
+        else if (urlObj.hostname.includes('youtu.be')) {
+          videoId = urlObj.pathname.slice(1);
+        }
+        // Format: youtube.com/VIDEO_ID (short format)
+        else if (urlObj.pathname && urlObj.pathname !== '/') {
+          const pathParts = urlObj.pathname.split('/').filter(p => p);
+          if (pathParts.length > 0 && pathParts[0] !== 'watch') {
+            videoId = pathParts[pathParts.length - 1];
+          }
+        }
+
+        if (videoId) {
+          return `https://www.youtube.com/embed/${videoId}`;
+        }
+
+        // If it's just youtube.com homepage, return empty (can't embed)
+        return '';
+      }
+
+      // For non-YouTube URLs, return as is
+      return url;
+    } catch (e) {
+      console.warn('[PlayerScreen] Invalid URL:', url, e);
+      return url; // Return original URL if parsing fails
+    }
+  };
+
+  const embedUrl = computed(() => getEmbedUrl(browserUrl.value));
+
+  // YouTube iframe API for player screen
+  const playerScreenPlayerId = 'youtube-player-screen';
+  let playerScreenPlayer = null;
+  let ytApiReady = false;
+  let playbackEventHandler = null; // Store event handler reference for cleanup
+  let playerReady = false; // Track if player is ready to receive commands
+
   // Get server URL from query param: /player-screen?s=192.168.0.102:8003
   // Supports short form (?s=IP:PORT) or full form (?s=http://IP:PORT)
   const serverUrl = computed(() => {
@@ -549,6 +656,186 @@
     }
   };
 
+  // Load YouTube iframe API
+  const loadYouTubeAPI = () => {
+    if (window.YT && window.YT.Player) {
+      ytApiReady = true;
+      initPlayerScreenPlayer();
+      return;
+    }
+    if (document.getElementById('youtube-iframe-api')) {
+      // Already loading
+      return;
+    }
+    const tag = document.createElement('script');
+    tag.id = 'youtube-iframe-api';
+    tag.src = 'https://www.youtube.com/iframe_api';
+    const firstScriptTag = document.getElementsByTagName('script')[0];
+    firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+    window.onYouTubeIframeAPIReady = () => {
+      ytApiReady = true;
+      initPlayerScreenPlayer();
+    };
+  };
+
+  // Initialize player screen YouTube player
+  const initPlayerScreenPlayer = () => {
+    if (!ytApiReady || !embedUrl.value || displayMode.value !== 'browser')
+      return;
+    if (playerScreenPlayer) {
+      playerScreenPlayer.destroy();
+      playerScreenPlayer = null;
+    }
+    playerReady = false; // Reset ready state
+    try {
+      // Extract video ID from embed URL or regular URL
+      let videoId = embedUrl.value.match(/embed\/([^?]+)/)?.[1] || '';
+      if (!videoId) {
+        // Try to extract from regular YouTube URL format
+        const urlMatch = browserUrl.value.match(
+          /(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&]+)/
+        );
+        videoId = urlMatch ? urlMatch[1] : '';
+      }
+      if (!videoId) {
+        console.warn(
+          '[PlayerScreen] Could not extract video ID from URL:',
+          embedUrl.value
+        );
+        return;
+      }
+      console.log(
+        '[PlayerScreen] Initializing YouTube player with video ID:',
+        videoId
+      );
+      playerScreenPlayer = new window.YT.Player(playerScreenPlayerId, {
+        videoId,
+        playerVars: {
+          enablejsapi: 1,
+          autoplay: 0,
+          controls: 1,
+          rel: 0,
+          modestbranding: 1,
+        },
+        events: {
+          onReady: event => {
+            playerReady = true;
+            console.log('[PlayerScreen] YouTube player ready', {
+              videoId,
+              playerState: event.target.getPlayerState?.(),
+            });
+          },
+          onStateChange: event => {
+            console.log('[PlayerScreen] Player state changed:', event.data);
+            // YT.PlayerState.PLAYING = 1, YT.PlayerState.PAUSED = 2
+            if (event.data === 1) {
+              console.log('[PlayerScreen] Video is playing');
+            } else if (event.data === 2) {
+              console.log('[PlayerScreen] Video is paused');
+            }
+          },
+          onError: event => {
+            console.error('[PlayerScreen] YouTube player error:', event.data);
+            playerReady = false;
+          },
+        },
+      });
+    } catch (e) {
+      console.error('[PlayerScreen] Failed to init YouTube player:', e);
+    }
+  };
+
+  // Handle YouTube playback commands
+  const handlePlaybackCommand = (command, position = null) => {
+    if (!playerScreenPlayer) {
+      console.warn(
+        '[PlayerScreen] Player not initialized, cannot execute command:',
+        command
+      );
+      return;
+    }
+    if (!playerReady) {
+      console.warn('[PlayerScreen] Player not ready yet, waiting...');
+      // Wait a bit and try again
+      setTimeout(() => {
+        if (playerReady && playerScreenPlayer) {
+          executePlaybackCommand(command, position);
+        } else {
+          console.warn('[PlayerScreen] Player still not ready after wait');
+        }
+      }, 500);
+      return;
+    }
+    executePlaybackCommand(command, position);
+  };
+
+  // Execute the actual playback command
+  const executePlaybackCommand = (command, position = null) => {
+    if (!playerScreenPlayer || !playerReady) {
+      console.warn('[PlayerScreen] Cannot execute command - player not ready', {
+        hasPlayer: !!playerScreenPlayer,
+        isReady: playerReady,
+        command,
+        position,
+      });
+      return;
+    }
+    try {
+      if (command === 'play') {
+        playerScreenPlayer.playVideo();
+      } else if (command === 'pause') {
+        playerScreenPlayer.pauseVideo();
+      } else if (command === 'seek' && position !== null) {
+        // Seek to position (in seconds)
+        playerScreenPlayer.seekTo(position, true); // true = allowSeekAhead
+      } else {
+        console.warn('[PlayerScreen] Unknown command:', command);
+      }
+    } catch (e) {
+      console.error(
+        '[PlayerScreen] Failed to execute playback command:',
+        e,
+        e.stack
+      );
+    }
+  };
+
+  // Listen for mode changes from WebSocket
+  const handleModeChange = event => {
+    const { mode, browserUrl: url } = event.detail;
+    console.log('[PlayerScreen] Mode change received:', mode, url);
+    displayMode.value = mode || 'dice';
+    browserUrl.value = url || '';
+    if (mode === 'browser' && url) {
+      if (ytApiReady) {
+        initPlayerScreenPlayer();
+      } else {
+        loadYouTubeAPI();
+      }
+    }
+  };
+
+  // Listen for YouTube playback commands from WebSocket
+  const handlePlaybackMessage = event => {
+    const msg = JSON.parse(event.data);
+    if (msg.type === 'youtube_playback' && msg.data) {
+      handlePlaybackCommand(msg.data.command);
+    }
+  };
+
+  // Watch displayMode to exit fullscreen when leaving browser mode
+  watch(displayMode, (newMode, oldMode) => {
+    if (newMode !== 'browser' && oldMode === 'browser') {
+      // Exiting browser mode - exit fullscreen
+      if (isFullscreenActive()) {
+        console.log(
+          '[PlayerScreen] Exiting fullscreen (browser mode deactivated)'
+        );
+        exitFullscreen();
+      }
+    }
+  });
+
   onMounted(() => {
     if (serverUrl.value) {
       console.log('[PlayerScreen] Connecting WebSocket to:', serverUrl.value);
@@ -557,6 +844,28 @@
     } else {
       serverError.value = 'No server URL. Add ?s=YOUR_IP:8003 to the URL';
       console.warn('[PlayerScreen]', serverError.value);
+    }
+
+    // Listen for mode changes
+    window.addEventListener('player-screen-mode-change', handleModeChange);
+    // Listen for YouTube playback commands
+    playbackEventHandler = event => {
+      const { command, position } = event.detail;
+      handlePlaybackCommand(command, position);
+    };
+    window.addEventListener('youtube-playback', playbackEventHandler);
+
+    // Request initial mode from server
+    if (serverUrl.value) {
+      fetch(`${serverUrl.value}/player-screen-mode`)
+        .then(res => res.json())
+        .then(data => {
+          displayMode.value = data.mode || 'dice';
+          browserUrl.value = data.browserUrl || '';
+        })
+        .catch(err => {
+          console.warn('[PlayerScreen] Failed to fetch mode:', err);
+        });
     }
   });
 
@@ -792,10 +1101,18 @@
   );
 
   onBeforeUnmount(() => {
+    window.removeEventListener('player-screen-mode-change', handleModeChange);
+    if (playbackEventHandler) {
+      window.removeEventListener('youtube-playback', playbackEventHandler);
+    }
     stopAnimation();
     rollStore.disconnectWebSocket();
     if (statusHideTimeout) {
       clearTimeout(statusHideTimeout);
+    }
+    if (playerScreenPlayer) {
+      playerScreenPlayer.destroy();
+      playerScreenPlayer = null;
     }
   });
 </script>
@@ -1540,5 +1857,88 @@
     100% {
       box-shadow: 0 0 15px rgba(200, 80, 80, 0.25);
     }
+  }
+
+  /* === BROWSER MODE === */
+  .browser-mode {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #1a1520;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9999;
+  }
+
+  .browser-iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* YouTube player container */
+  .youtube-player-container {
+    width: 100%;
+    height: 100%;
+    min-height: 100vh;
+  }
+
+  #youtube-player-screen {
+    width: 100%;
+    height: 100%;
+    min-height: 100vh;
+  }
+
+  .browser-placeholder,
+  .map-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    width: 100%;
+    height: 100vh;
+    background: linear-gradient(
+      180deg,
+      rgba(26, 21, 32, 0.95) 0%,
+      rgba(20, 17, 25, 0.98) 100%
+    );
+  }
+
+  .placeholder-icon {
+    font-size: 120px;
+    opacity: 0.4;
+  }
+
+  .placeholder-text {
+    font-family: 'Cinzel', serif;
+    font-size: 32px;
+    color: #f4e4c1;
+    text-align: center;
+  }
+
+  .placeholder-hint {
+    font-family: 'Crimson Text', serif;
+    font-size: 18px;
+    color: #b8a88a;
+    font-style: italic;
+    text-align: center;
+  }
+
+  /* === MAP MODE === */
+  .map-mode {
+    width: 100%;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #1a1520;
   }
 </style>
