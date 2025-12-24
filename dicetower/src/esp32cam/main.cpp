@@ -223,7 +223,8 @@ static String makeApSsid() {
   uint8_t mac[6];
   WiFi.macAddress(mac);
   char ssid[32];
-  snprintf(ssid, sizeof(ssid), "DiceTower-%02X%02X", mac[4], mac[5]);
+  // Use a more descriptive AP name, e.g. "DiceTower-ESP-D659"
+  snprintf(ssid, sizeof(ssid), "DiceTower-ESP-%02X%02X", mac[4], mac[5]);
   return String(ssid);
 }
 

@@ -4,10 +4,10 @@
 #include <ESP8266WebServer.h>
 #include <LittleFS.h>
 #include <ArduinoJson.h>
-#include "firmware/setup/led_strip.h"
+#include "NodeMCU/setup/led_strip.h"
 
 static ESP8266WebServer httpServer(80);
-static bool blinkEnabled = true;
+static bool blinkEnabled = false; // Not blinking by default
 static bool stripEnabled = true;
 static unsigned long lastToggleMs = 0;
 static const unsigned long blinkIntervalMs = 500;
@@ -86,7 +86,8 @@ static String makeApSsid() {
   uint8_t mac[6];
   WiFi.macAddress(mac);
   char ssid[32];
-  snprintf(ssid, sizeof(ssid), "DiceTower-%02X%02X", mac[4], mac[5]);
+  // Use a more descriptive AP name, e.g. "DiceTower-nodeMCU-D659"
+  snprintf(ssid, sizeof(ssid), "DiceTower-nodeMCU-%02X%02X", mac[4], mac[5]);
   return String(ssid);
 }
 
@@ -327,6 +328,42 @@ void setup() {
     httpServer.send(200, "application/json", String("{\"ok\":true,\"mode\":\"") + (next==LED_MODE_GLOW?"glow":"chase") + "\"}");
   });
   httpServer.on("/strip/mode/toggle", HTTP_OPTIONS, handleOptions);
+  httpServer.on("/strip/mode/glow", [](){
+    ledStripSetMode(LED_MODE_GLOW);
+    addNoCacheAndCors();
+    httpServer.send(200, "application/json", "{\"ok\":true,\"mode\":\"glow\"}");
+  });
+  httpServer.on("/strip/mode/glow", HTTP_OPTIONS, handleOptions);
+  httpServer.on("/strip/blink", [](){
+    ledStripBlink3();
+    addNoCacheAndCors();
+    httpServer.send(200, "application/json", "{\"ok\":true}");
+  });
+  httpServer.on("/strip/blink", HTTP_OPTIONS, handleOptions);
+  httpServer.on("/strip/solid", [](){
+    stripEnabled = true;
+    ledStripSolidOn();
+    addNoCacheAndCors();
+    httpServer.send(200, "application/json", "{\"ok\":true,\"strip\":true}");
+  });
+  httpServer.on("/strip/solid", HTTP_OPTIONS, handleOptions);
+  // Built-in LED direct control (not blinking)
+  httpServer.on("/led/on", [](){
+    blinkEnabled = false; // Stop blinking
+    digitalWrite(LED_BUILTIN, LOW); // On (active-low)
+    ledOn = true;
+    addNoCacheAndCors();
+    httpServer.send(200, "application/json", "{\"ok\":true,\"led\":true}");
+  });
+  httpServer.on("/led/on", HTTP_OPTIONS, handleOptions);
+  httpServer.on("/led/off", [](){
+    blinkEnabled = false; // Stop blinking
+    digitalWrite(LED_BUILTIN, HIGH); // Off (active-low)
+    ledOn = false;
+    addNoCacheAndCors();
+    httpServer.send(200, "application/json", "{\"ok\":true,\"led\":false}");
+  });
+  httpServer.on("/led/off", HTTP_OPTIONS, handleOptions);
   httpServer.on("/provision", handleProvision);
   httpServer.on("/provision", HTTP_OPTIONS, handleOptions);
   httpServer.on("/wipe", handleWipe);

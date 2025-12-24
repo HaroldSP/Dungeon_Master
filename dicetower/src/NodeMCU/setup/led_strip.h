@@ -14,10 +14,17 @@ void ledStripAllOff();
 enum LedStripMode {
   LED_MODE_GLOW = 0,
   LED_MODE_CHASE = 1,
+  LED_MODE_SOLID = 2,
 };
 
 // Set and get current mode
 void ledStripSetMode(LedStripMode mode);
 LedStripMode ledStripGetMode();
+
+// Blink 3 times fast (for result indication)
+void ledStripBlink3();
+
+// Set all LEDs to solid purple (for constant on state)
+void ledStripSolidOn();
 
 

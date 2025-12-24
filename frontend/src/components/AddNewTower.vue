@@ -48,29 +48,29 @@
       </v-col>
     </v-row>
 
-  <v-row>
-    <v-col
-      cols="12"
-      md="6"
-    >
-      <v-card
-        elevation="2"
-        class="pa-4 mb-4"
+    <v-row>
+      <v-col
+        cols="12"
+        md="6"
       >
+        <v-card
+          elevation="2"
+          class="pa-4 mb-4"
+        >
           <v-card-title class="text-h6">Step 2: ESP32-CAM</v-card-title>
-        <v-card-text>
+          <v-card-text>
             <p class="text-body-2 mb-2">
-              Connect to tower AP (<code>DiceTower-XXYY</code>, password
-              <code>dungeon123</code>), then send your home Wi‑Fi. If already
-              connected (env), use status check.
+              Connect to tower AP (<code>DiceTower-ESP-XXYY</code>, password
+              <code>dungeon123</code>), then send your home Wi‑Fi. The last 2
+              letters (XXYY) come from the device MAC address.
             </p>
-          <v-text-field
-            v-model="apUrl"
-            label="Tower URL (AP mode)"
+            <v-text-field
+              v-model="apUrl"
+              label="Tower URL (AP mode)"
               variant="outlined"
               density="comfortable"
               class="mb-2"
-            placeholder="http://192.168.4.1"
+              placeholder="http://192.168.4.1"
               persistent-placeholder
             />
 
@@ -87,30 +87,30 @@
               v-model="homePass"
               label="Home Wi‑Fi Password"
               type="password"
-            variant="outlined"
-            density="comfortable"
+              variant="outlined"
+              density="comfortable"
               class="mb-3"
               placeholder="your-password"
               persistent-placeholder
-          />
+            />
             <div class="d-flex flex-wrap gap-2 mb-3">
-            <v-btn
+              <v-btn
                 size="small"
-              color="primary"
-              variant="tonal"
+                color="primary"
+                variant="tonal"
                 :loading="loading.provision"
                 text="Send Credentials"
                 @click="provision"
-            />
-            <v-btn
+              />
+              <v-btn
                 size="small"
                 variant="outlined"
                 @click="checkStaStatus"
               >
                 Check if already connected (STA)
               </v-btn>
-          </div>
-          <v-alert
+            </div>
+            <v-alert
               v-if="lastProvisionIp"
               type="success"
               variant="tonal"
@@ -127,11 +127,11 @@
             >
             <v-alert
               v-if="staCheckResult"
-            type="info"
-            variant="tonal"
+              type="info"
+              variant="tonal"
               class="mb-3"
               >{{ staCheckResult }}</v-alert
-          >
+            >
             <v-divider class="my-3" />
             <div class="text-subtitle-2 mb-2">ESP32-CAM endpoints</div>
             <div class="d-flex flex-wrap gap-2 mb-2">
@@ -143,21 +143,21 @@
                 >Who am I (ESP)</v-btn
               >
             </div>
-          <v-text-field
+            <v-text-field
               v-model="espApiBase"
               label="ESP32-CAM API (STA)"
-            variant="outlined"
-            density="comfortable"
-            class="mb-2"
+              variant="outlined"
+              density="comfortable"
+              class="mb-2"
               placeholder="http://192.168.110.53"
               persistent-placeholder
-          />
-          <v-text-field
+            />
+            <v-text-field
               v-model="espStreamUrl"
               label="ESP32-CAM Stream"
-            variant="outlined"
-            density="comfortable"
-            class="mb-2"
+              variant="outlined"
+              density="comfortable"
+              class="mb-2"
               placeholder="http://192.168.110.53:81/camera/stream"
               persistent-placeholder
             />
@@ -177,12 +177,12 @@
                 >Test capture</v-btn
               >
             </div>
-          <v-text-field
+            <v-text-field
               v-model="pyServerUrl"
               label="Python server URL"
-            variant="outlined"
-            density="comfortable"
-            class="mb-2"
+              variant="outlined"
+              density="comfortable"
+              class="mb-2"
               placeholder="http://localhost:8003/detect"
               persistent-placeholder
             />
@@ -200,10 +200,10 @@
                 @click="pyTestDetect"
                 >Test detection</v-btn
               >
-          <v-btn
+              <v-btn
                 v-if="pyChanged"
                 size="small"
-            color="primary"
+                color="primary"
                 variant="outlined"
                 @click="savePyServer"
               >
@@ -218,33 +218,35 @@
             >
               {{ pyStatusText }}
             </v-alert>
-          <v-alert
+            <v-alert
               v-if="espStatusText"
-            type="info"
-            variant="tonal"
+              type="info"
+              variant="tonal"
               class="mb-2"
-          >
+            >
               {{ espStatusText }}
             </v-alert>
           </v-card-text>
-      </v-card>
-    </v-col>
+        </v-card>
+      </v-col>
 
-    <v-col
-      cols="12"
-      md="6"
-    >
-      <v-card
-        elevation="2"
-        class="pa-4 mb-4"
+      <v-col
+        cols="12"
+        md="6"
       >
+        <v-card
+          elevation="2"
+          class="pa-4 mb-4"
+        >
           <v-card-title class="text-h6">Step 3: NodeMCU</v-card-title>
-        <v-card-text>
+          <v-card-text>
             <p class="text-body-2 mb-2">
-              Connect to NodeMCU AP (<code>DiceTower-XXYY</code>, password
-              <code>dungeon123</code>) if needed, then send your home Wi‑Fi.
-          </p>
-          <v-text-field
+              Connect to NodeMCU AP (<code>DiceTower-nodeMCU-XXYY</code>,
+              password
+              <code>dungeon123</code>) if needed, then send your home Wi‑Fi. The
+              XXYY part is derived from the NodeMCU MAC address.
+            </p>
+            <v-text-field
               v-model="nodemcuApUrl"
               label="NodeMCU URL (AP mode)"
               variant="outlined"
@@ -266,12 +268,12 @@
               v-model="nodemcuProvisionPass"
               label="Home Wi‑Fi Password"
               type="password"
-            variant="outlined"
-            density="comfortable"
+              variant="outlined"
+              density="comfortable"
               class="mb-3"
               placeholder="your-password"
               persistent-placeholder
-          />
+            />
             <div class="d-flex flex-wrap gap-2 mb-3">
               <v-btn
                 size="small"
@@ -286,16 +288,16 @@
                 @click="pingNodeStatus"
                 >Status</v-btn
               >
-            <v-btn
+              <v-btn
                 size="small"
-              color="primary"
+                color="primary"
                 variant="tonal"
                 @click="testNodeOn"
                 >LED On</v-btn
               >
-            <v-btn
+              <v-btn
                 size="small"
-              color="secondary"
+                color="secondary"
                 variant="tonal"
                 @click="testNodeOff"
                 >LED Off</v-btn
@@ -304,14 +306,14 @@
             <v-divider class="my-3" />
             <div class="text-subtitle-2 mb-2">NodeMCU endpoints</div>
             <div class="d-flex flex-wrap gap-2 mb-2">
-            <v-btn
+              <v-btn
                 class="mb-2"
                 size="small"
                 variant="outlined"
                 @click="pingNodeWhoami"
                 >Who am I (Node)</v-btn
               >
-          </div>
+            </div>
             <v-text-field
               v-model="nodemcuApiBase"
               label="NodeMCU API"
@@ -321,10 +323,10 @@
               placeholder="http://192.168.110.54"
               persistent-placeholder
             />
-          <v-alert
+            <v-alert
               v-if="nodeProvisionResult"
-            type="info"
-            variant="tonal"
+              type="info"
+              variant="tonal"
               class="mb-2"
             >
               {{ nodeProvisionResult }}
@@ -337,10 +339,10 @@
             >
               {{ nodeStatusText }}
             </v-alert>
-        </v-card-text>
-      </v-card>
-    </v-col>
-  </v-row>
+          </v-card-text>
+        </v-card>
+      </v-col>
+    </v-row>
     <v-row>
       <v-col
         cols="12"

@@ -229,19 +229,32 @@
                     size="small"
                     color="primary"
                     @click="callNode(t, '/strip/on')"
-                    text="On"
+                    text="Strip On"
                   />
                   <v-btn
                     size="small"
                     color="secondary"
                     @click="callNode(t, '/strip/off')"
-                    text="Off"
+                    text="Strip Off"
                   />
                   <v-btn
                     size="small"
                     variant="tonal"
                     @click="callNode(t, '/strip/mode/toggle')"
                     text="Mode"
+                  />
+                  <v-btn
+                    size="small"
+                    color="info"
+                    @click="callNode(t, '/led/on')"
+                    text="LED On"
+                  />
+                  <v-btn
+                    size="small"
+                    color="info"
+                    variant="outlined"
+                    @click="callNode(t, '/led/off')"
+                    text="LED Off"
                   />
                   <v-btn
                     size="small"
@@ -438,35 +451,104 @@
               variant="outlined"
               density="comfortable"
               class="mb-2"
+              placeholder="http://192.168.110.54"
+              persistent-placeholder
+            />
+
+            <!-- NodeMCU provisioning (for adding the LED node later) -->
+            <p class="text-body-2 mb-2">
+              Connect NodeMCU to your home Wi‑Fi (only needed once per device).
+            </p>
+            <v-text-field
+              v-model="editNodeSsid"
+              label="Home Wi‑Fi SSID"
+              variant="outlined"
+              density="comfortable"
+              class="mb-2"
+              placeholder="your-ssid"
+              persistent-placeholder
+            />
+            <v-text-field
+              v-model="editNodePass"
+              label="Home Wi‑Fi Password"
+              type="password"
+              variant="outlined"
+              density="comfortable"
+              class="mb-3"
+              placeholder="your-password"
+              persistent-placeholder
             />
             <div class="d-flex flex-wrap gap-2 mb-2">
               <v-btn
                 size="small"
+                color="primary"
+                variant="tonal"
+                @click="provisionNodeForEdit(currentEditTower)"
+              >
+                Send Credentials
+              </v-btn>
+              <v-btn
+                size="small"
                 variant="tonal"
                 @click="pingNodeStatus(currentEditTower)"
-                >Status</v-btn
               >
+                Status
+              </v-btn>
               <v-btn
                 size="small"
                 color="primary"
                 variant="tonal"
                 @click="callNode(currentEditTower, '/strip/on')"
-                >LED On</v-btn
               >
+                Strip On
+              </v-btn>
               <v-btn
                 size="small"
                 color="secondary"
                 variant="tonal"
                 @click="callNode(currentEditTower, '/strip/off')"
-                >LED Off</v-btn
               >
+                Strip Off
+              </v-btn>
+              <v-btn
+                size="small"
+                variant="tonal"
+                @click="callNode(currentEditTower, '/strip/mode/toggle')"
+              >
+                Mode
+              </v-btn>
+              <v-btn
+                size="small"
+                color="info"
+                variant="tonal"
+                @click="callNode(currentEditTower, '/led/on')"
+              >
+                LED On
+              </v-btn>
+              <v-btn
+                size="small"
+                color="info"
+                variant="outlined"
+                @click="callNode(currentEditTower, '/led/off')"
+              >
+                LED Off
+              </v-btn>
               <v-btn
                 size="small"
                 variant="outlined"
                 @click="whoamiNode(currentEditTower)"
-                >Who am I</v-btn
               >
+                Who am I
+              </v-btn>
             </div>
+            <v-alert
+              v-if="editNodeStatusText"
+              type="info"
+              variant="tonal"
+              class="mt-2"
+            >
+              {{ editNodeStatusText }}
+            </v-alert>
           </v-card>
         </v-card-text>
         <v-card-actions>
@@ -589,6 +671,9 @@
     nodemcuApiBase: '',
     pyServerUrl: '',
   });
+  const editNodeSsid = ref('');
+  const editNodePass = ref('');
+  const editNodeStatusText = ref('');
   const pyDefault =
     import.meta.env.VITE_PY_SERVER_URL || 'http://localhost:8003/detect';
   const players = ref([]);
@@ -932,6 +1017,64 @@
     }
   }
 
+  async function pingNodeStatus(tower) {
+    editNodeStatusText.value = '';
+    const base = (tower?.nodemcuApiBase || editForm.value.nodemcuApiBase || '')
+      .trim()
+      .replace(/\/+$/, '');
+    if (!base) {
+      editNodeStatusText.value =
+        'Enter NodeMCU API for this tower, e.g. http://192.168.110.54';
+      console.warn('[TowerGrid] pingNodeStatus: missing nodemcuApiBase');
+      return;
+    }
+    try {
+      const res = await fetch(`${base}/status`, { cache: 'no-store' });
+      const text = await res.text();
+      editNodeStatusText.value = `Node status → ${res.status}: ${text}`;
+      console.log('[TowerGrid] Node status', {
+        base,
+        status: res.status,
+        text,
+      });
+    } catch (e) {
+      editNodeStatusText.value = `Node status error: ${e}`;
+      console.error('[TowerGrid] node status error', e);
+    }
+  }
+
+  async function provisionNodeForEdit(tower) {
+    editNodeStatusText.value = '';
+    const base = (tower?.nodemcuApiBase || editForm.value.nodemcuApiBase || '')
+      .trim()
+      .replace(/\/+$/, '');
+    if (!base) {
+      editNodeStatusText.value =
+        'Enter NodeMCU API for this tower, e.g. http://192.168.110.54';
+      return;
+    }
+    if (!editNodeSsid.value) {
+      editNodeStatusText.value = 'Enter Wi‑Fi SSID for NodeMCU';
+      return;
+    }
+    try {
+      const url = `${base}/provision?ssid=${encodeURIComponent(
+        editNodeSsid.value
+      )}&pass=${encodeURIComponent(editNodePass.value || '')}`;
+      const res = await fetch(url, { cache: 'no-store' });
+      const text = await res.text();
+      editNodeStatusText.value = `Node provision → ${res.status}: ${text}`;
+      console.log('[TowerGrid] Node provision', {
+        base,
+        status: res.status,
+        text,
+      });
+    } catch (e) {
+      editNodeStatusText.value = `Node provision error: ${e}`;
+      console.error('[TowerGrid] node provision error', e);
+    }
+  }
+
   async function detectViaPython(tower) {
     const detectUrl = (tower?.pyServerUrl || pyServerUrl || '')
       .toString()
@@ -1218,6 +1361,10 @@
     pythonResults.value = pyCopy;
     // Also clear player screen when DM manually stops
     rollBroadcast.clearRoll();
+    // Turn off LED when roll stops
+    if (tower?.nodemcuApiBase) {
+      callNode(tower, '/strip/off');
+    }
   }
 
   async function runRollLoop(tower) {
@@ -1306,6 +1453,13 @@
                 difficultyClass: dcValue,
               });
 
+              // Blink 3 times, then turn on solid
+              if (tower?.nodemcuApiBase) {
+                callNode(tower, '/strip/blink').then(() => {
+                  callNode(tower, '/strip/solid');
+                });
+              }
+
               scheduleAutoClear(id);
               return;
             }
@@ -1345,6 +1499,13 @@
                 isNat1: num === 1,
                 isNat20: num === 20,
               });
+
+              // Blink 3 times, then turn on solid
+              if (tower?.nodemcuApiBase) {
+                callNode(tower, '/strip/blink').then(() => {
+                  callNode(tower, '/strip/solid');
+                });
+              }
 
               scheduleAutoClear(id);
               return;
@@ -1460,6 +1621,13 @@
       modifier,
       difficultyClass: dcValue,
     });
+
+    // Start LED in breathe mode (GLOW)
+    if (tower?.nodemcuApiBase) {
+      callNode(tower, '/strip/mode/glow').then(() => {
+        callNode(tower, '/strip/on');
+      });
+    }
 
     runRollLoop(tower);
   }

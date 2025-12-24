@@ -87,9 +87,10 @@ static void renderChase() {
 void ledStripLoop() {
   if (gMode == LED_MODE_GLOW) {
     renderGlow();
-  } else {
+  } else if (gMode == LED_MODE_CHASE) {
     renderChase();
   }
+  // LED_MODE_SOLID: do nothing, keep LEDs as they are (set by ledStripSolidOn)
 }
 
 void ledStripAllOff() {
@@ -105,6 +106,36 @@ void ledStripSetMode(LedStripMode mode) {
 
 LedStripMode ledStripGetMode() {
   return gMode;
+}
+
+void ledStripBlink3() {
+  // Blink 3 times fast: on-off-on-off-on-off
+  const uint8_t r = 160, g = 0, b = 255; // Purple color
+  const uint16_t blinkDelayMs = 150; // Fast blink
+  
+  for (int i = 0; i < 3; i++) {
+    // On
+    for (uint16_t j = 0; j < gNumPixels; ++j) {
+      gStrip.setPixelColor(j, gStrip.Color(r, g, b));
+    }
+    gStrip.show();
+    delay(blinkDelayMs);
+    
+    // Off
+    ledStripAllOff();
+    delay(blinkDelayMs);
+  }
+}
+
+void ledStripSolidOn() {
+  // Set mode to SOLID to prevent animation
+  gMode = LED_MODE_SOLID;
+  // Set all LEDs to solid purple (full brightness)
+  const uint8_t r = 160, g = 0, b = 255;
+  for (uint16_t i = 0; i < gNumPixels; ++i) {
+    gStrip.setPixelColor(i, gStrip.Color(r, g, b));
+  }
+  gStrip.show();
 }
 
 
