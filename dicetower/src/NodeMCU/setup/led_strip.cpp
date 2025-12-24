@@ -1,8 +1,9 @@
 #include "led_strip.h"
 #include <Adafruit_NeoPixel.h>
 
-// Pin D2 on NodeMCU v2 = GPIO4
-static const uint8_t kLedPin = 4;
+// Pin D5 on NodeMCU v2 = GPIO14 (more reliable for WS2812)
+// Alternative: D2 = GPIO4, D6 = GPIO12
+static const uint8_t kLedPin = 14;  // Changed from GPIO4 to GPIO14
 // Default number of pixels if not specified
 static uint16_t gNumPixels = 8;
 
