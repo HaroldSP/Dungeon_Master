@@ -7,11 +7,9 @@
 #include "setup/led_strip.h"
 
 static ESP8266WebServer httpServer(80);
-static bool blinkEnabled = false; // Not blinking by default
+static bool blinkEnabled = false; // Not blinking by default (controlled via API)
 static bool stripEnabled = true;
-static unsigned long lastToggleMs = 0;
-static const unsigned long blinkIntervalMs = 500;
-static bool ledOn = false; // logical state
+static bool ledOn = false; // logical state for built-in LED
 
 // --- HTTP helpers ---
 static void addNoCacheAndCors() {
@@ -63,19 +61,30 @@ static bool loadCredentials(WifiCredentials& out) {
   return out.ssid.length() > 0;
 }
 
-static bool tryConnectSta(const WifiCredentials& creds, unsigned long timeoutMs = 15000) {
-  // Keep AP up while attempting STA connect to avoid breaking active clients
-  WiFi.mode(WIFI_AP_STA);
+static bool tryConnectSta(const WifiCredentials& creds, unsigned long timeoutMs = 15000, bool keepApEnabled = false) {
+  // Use AP+STA mode only if we need to keep AP enabled (e.g., during provisioning from AP)
+  // Otherwise use STA-only mode
+  if (keepApEnabled) {
+    WiFi.mode(WIFI_AP_STA);
+  } else {
+    WiFi.mode(WIFI_STA);
+  }
   WiFi.begin(creds.ssid.c_str(), creds.pass.c_str());
   Serial.print("Connecting to WiFi SSID=\""); Serial.print(creds.ssid); Serial.println("\"...");
   unsigned long start = millis();
   while (WiFi.status() != WL_CONNECTED && (millis() - start) < timeoutMs) {
     delay(250);
     Serial.print('.');
+    yield(); // Feed watchdog
   }
   Serial.println();
   if (WiFi.status() == WL_CONNECTED) {
     Serial.print("Connected, IP: "); Serial.println(WiFi.localIP());
+    // If we were in AP+STA mode and now connected, explicitly disable AP
+    if (keepApEnabled) {
+      WiFi.mode(WIFI_STA);
+      Serial.println("AP disabled - now in STA-only mode");
+    }
     return true;
   }
   Serial.println("STA connect failed, falling back to AP");
@@ -148,9 +157,27 @@ static void handleBlinkToggle() {
 }
 
 static void handleStatus() {
+  bool staConnected = (WiFi.status() == WL_CONNECTED);
+  bool apEnabled = WiFi.getMode() & WIFI_AP;
+  String mode = "unknown";
+  if (apEnabled && staConnected) {
+    mode = "AP+STA";
+  } else if (apEnabled) {
+    mode = "AP";
+  } else if (staConnected) {
+    mode = "STA";
+  } else {
+    mode = "OFF";
+  }
+  
   String json = String("{\"blinking\":") + (blinkEnabled?"true":"false") + 
                 ",\"ledOn\":" + (ledOn?"true":"false") +
-                ",\"strip\":" + (stripEnabled?"true":"false") + "}";
+                ",\"strip\":" + (stripEnabled?"true":"false") +
+                ",\"mode\":\"" + mode + "\"" +
+                ",\"staConnected\":" + (staConnected?"true":"false") +
+                ",\"staIp\":\"" + (staConnected ? WiFi.localIP().toString() : "") + "\"" +
+                ",\"apIp\":\"" + WiFi.softAPIP().toString() + "\"" +
+                "}";
   addNoCacheAndCors();
   httpServer.send(200, "application/json", json);
 }
@@ -168,22 +195,30 @@ static void handleProvision() {
   bool saved = saveCredentials(creds);
   bool connected = false;
   if (saved) {
-    // Switch to AP+STA mode to attempt connection while keeping AP available
-    WiFi.mode(WIFI_AP_STA);
-    connected = tryConnectSta(creds);
-    // Keep AP+STA mode so both are available after connection
+    // We're currently in AP mode, so keep AP enabled during connection attempt
+    // to allow the provisioning client to stay connected
+    connected = tryConnectSta(creds, 15000, true); // keepApEnabled=true
     if (connected) {
-      Serial.println("STA connected, AP remains available");
+      // AP is already disabled by tryConnectSta() after successful connection
+      // Explicitly ensure we're in STA-only mode
+      WiFi.mode(WIFI_STA);
+      Serial.println("STA connected - AP turned off, staying in STA-only mode");
+      Serial.print("STA IP: "); Serial.println(WiFi.localIP());
     } else {
-      // If connection failed, stay in AP mode
+      // If connection failed, ensure AP is still running for retry
       WiFi.mode(WIFI_AP);
-      Serial.println("STA connection failed, staying in AP mode");
+      const String apSsid = makeApSsid();
+      WiFi.softAPConfig(IPAddress(192,168,4,1), IPAddress(192,168,4,1), IPAddress(255,255,255,0));
+      WiFi.softAP(apSsid.c_str(), "dungeon123");
+      Serial.println("STA connection failed - staying in AP mode for retry");
+      Serial.print("AP SSID: "); Serial.println(apSsid);
     }
   }
   String json = String("{\"ok\":") + (saved?"true":"false") + 
                 ",\"connected\":" + (connected?"true":"false") + 
-                ",\"ip\":\"" + (connected ? WiFi.localIP().toString() : "") + 
-                "\",\"name\":\"" + creds.name + "\"}";
+                ",\"ip\":\"" + (connected ? WiFi.localIP().toString() : "") + "\"" +
+                ",\"apOff\":" + (connected?"true":"false") +
+                ",\"name\":\"" + creds.name + "\"}";
   addNoCacheAndCors();
   httpServer.send(saved ? 200 : 500, "application/json", json);
 }
@@ -199,24 +234,27 @@ static void handleWipe() {
   ESP.restart();
 }
 
-static void handleApToggle() {
-  String action = httpServer.hasArg("action") ? httpServer.arg("action") : "";
-  bool apEnabled = WiFi.getMode() & WIFI_AP;
+static void handleForceAp() {
+  // Force AP mode for re-provisioning (turns off STA, starts AP)
+  const String apSsid = makeApSsid();
+  const char* apPassword = "dungeon123";
   
-  if (action == "off" && apEnabled) {
-    WiFi.mode(WIFI_STA);
-    addNoCacheAndCors();
-    httpServer.send(200, "application/json", "{\"ok\":true,\"ap\":false}");
-  } else if (action == "on" && !apEnabled) {
-    WiFi.mode(WIFI_AP_STA);
-    const String apSsid = makeApSsid();
-    WiFi.softAP(apSsid.c_str(), "dungeon123");
-    addNoCacheAndCors();
-    httpServer.send(200, "application/json", "{\"ok\":true,\"ap\":true}");
-  } else {
-    addNoCacheAndCors();
-    httpServer.send(200, "application/json", String("{\"ok\":true,\"ap\":") + (apEnabled?"true":"false") + "}");
-  }
+  WiFi.disconnect();
+  WiFi.mode(WIFI_AP);
+  WiFi.softAPConfig(IPAddress(192,168,4,1), IPAddress(192,168,4,1), IPAddress(255,255,255,0));
+  bool apOk = WiFi.softAP(apSsid.c_str(), apPassword);
+  delay(200);
+  
+  Serial.println("AP mode forced for re-provisioning");
+  Serial.print("AP SSID: "); Serial.println(apSsid);
+  Serial.print("AP IP: "); Serial.println(WiFi.softAPIP());
+  
+  String json = String("{\"ok\":") + (apOk?"true":"false") +
+                ",\"ap\":true" +
+                ",\"ssid\":\"" + apSsid + "\"" +
+                ",\"ip\":\"" + WiFi.softAPIP().toString() + "\"}";
+  addNoCacheAndCors();
+  httpServer.send(apOk ? 200 : 500, "application/json", json);
 }
 
 static void handleName() {
@@ -261,54 +299,70 @@ void setup() {
   WiFi.persistent(false);        // do not write SDK NVRAM unless we ask
   WiFi.disconnect(true);         // clear any saved STA credentials
   WiFi.mode(WIFI_OFF);
-  delay(200);  // Give more time for WiFi to fully reset
+  delay(300);  // Give more time for WiFi to fully reset
   WiFi.setSleep(false);
   
-  // Clear any saved credentials to prevent auto-connect attempts
+  // FS init (try once, don't fail if it doesn't work)
+  Serial.println("Initializing filesystem...");
+  bool haveCreds = false;
+  WifiCredentials savedCreds;
   if (LittleFS.begin()) {
-    if (LittleFS.exists(kCredsPath)) {
-      Serial.println("Found saved credentials - they will be used only after manual provisioning");
-    }
-  }
-
-  // FS init
-  if (!LittleFS.begin()) {
-    Serial.println("LittleFS mount failed");
-  }
-
-  // Always bring up AP for provisioning (no auto-connect on boot)
-  const String apSsid = makeApSsid();
-  const char* apPassword = "dungeon123"; // simple default
-  
-  // Configure AP IP address explicitly for stability
-  WiFi.softAPConfig(IPAddress(192,168,4,1), IPAddress(192,168,4,1), IPAddress(255,255,255,0));
-  
-  WiFi.mode(WIFI_AP);
-  bool apOk = WiFi.softAP(apSsid.c_str(), apPassword);
-  delay(200);  // Give more time for AP to initialize
-  IPAddress apIp = WiFi.softAPIP();
-  Serial.print("AP SSID: "); Serial.println(apSsid);
-  Serial.print("AP PASS: "); Serial.println(apPassword);
-  Serial.print("AP IP:   "); Serial.println(apIp);
-  Serial.print("AP Status: "); Serial.println(apOk ? "OK" : "FAILED");
-  
-  if (!apOk) {
-    Serial.println("AP start failed; retrying...");
-    WiFi.mode(WIFI_OFF); 
-    delay(200); 
-    WiFi.mode(WIFI_AP);
-    WiFi.softAPConfig(IPAddress(192,168,4,1), IPAddress(192,168,4,1), IPAddress(255,255,255,0));
-    apOk = WiFi.softAP(apSsid.c_str(), apPassword);
-    delay(200);
-    if (apOk) {
-      Serial.println("AP started on retry");
-      Serial.print("AP IP: "); Serial.println(WiFi.softAPIP());
+    Serial.println("Filesystem OK");
+    haveCreds = loadCredentials(savedCreds);
+    if (haveCreds) {
+      Serial.println("Found saved credentials - connecting to WiFi...");
     } else {
-      Serial.println("AP failed again - check hardware");
+      Serial.println("No saved credentials - starting in AP mode for provisioning");
+    }
+  } else {
+    Serial.println("LittleFS mount failed (non-critical)");
+  }
+
+  if (haveCreds) {
+    // Connect to saved WiFi (STA mode only, no AP)
+    bool connected = tryConnectSta(savedCreds, 15000, false); // keepApEnabled=false
+    if (connected) {
+      Serial.print("Connected to WiFi, IP: "); Serial.println(WiFi.localIP());
+      Serial.println("Running in STA mode only (AP disabled)");
+    } else {
+      Serial.println("WiFi connection failed - starting AP mode for re-provisioning");
+      // Fall back to AP mode if connection fails
+      haveCreds = false;
     }
   }
   
-  Serial.println("AP mode only - connect via AP to provision Wi-Fi credentials");
+  if (!haveCreds || WiFi.status() != WL_CONNECTED) {
+    // No credentials or connection failed - start AP mode for provisioning
+    const String apSsid = makeApSsid();
+    const char* apPassword = "dungeon123";
+    
+    WiFi.softAPConfig(IPAddress(192,168,4,1), IPAddress(192,168,4,1), IPAddress(255,255,255,0));
+    WiFi.mode(WIFI_AP);
+    bool apOk = WiFi.softAP(apSsid.c_str(), apPassword);
+    delay(200);
+    IPAddress apIp = WiFi.softAPIP();
+    Serial.print("AP SSID: "); Serial.println(apSsid);
+    Serial.print("AP PASS: "); Serial.println(apPassword);
+    Serial.print("AP IP:   "); Serial.println(apIp);
+    Serial.print("AP Status: "); Serial.println(apOk ? "OK" : "FAILED");
+    
+    if (!apOk) {
+      Serial.println("AP start failed; retrying...");
+      WiFi.mode(WIFI_OFF); 
+      delay(200); 
+      WiFi.mode(WIFI_AP);
+      WiFi.softAPConfig(IPAddress(192,168,4,1), IPAddress(192,168,4,1), IPAddress(255,255,255,0));
+      apOk = WiFi.softAP(apSsid.c_str(), apPassword);
+      delay(200);
+      if (apOk) {
+        Serial.println("AP started on retry");
+        Serial.print("AP IP: "); Serial.println(WiFi.softAPIP());
+      } else {
+        Serial.println("AP failed again - check hardware");
+      }
+    }
+    Serial.println("AP mode - connect to provision Wi-Fi credentials");
+  }
 
   // HTTP routes
   httpServer.on("/", handleRoot);
@@ -390,8 +444,8 @@ void setup() {
   httpServer.on("/provision", HTTP_OPTIONS, handleOptions);
   httpServer.on("/wipe", handleWipe);
   httpServer.on("/wipe", HTTP_OPTIONS, handleOptions);
-  httpServer.on("/ap/toggle", handleApToggle);
-  httpServer.on("/ap/toggle", HTTP_OPTIONS, handleOptions);
+  httpServer.on("/force-ap", handleForceAp);
+  httpServer.on("/force-ap", HTTP_OPTIONS, handleOptions);
   httpServer.on("/name", handleName);
   httpServer.on("/name", HTTP_OPTIONS, handleOptions);
   httpServer.onNotFound([](){
@@ -401,40 +455,20 @@ void setup() {
   httpServer.begin();
   Serial.println("HTTP server started on port 80");
 
-  // LED strip (WS2812 on D2) — set your actual pixel count here
+  // LED strip (WS2812 on D5/GPIO14) — set your actual pixel count here
+  // Initialize LED strip - wrap in try/catch equivalent to prevent crashes
+  Serial.println("Initializing LED strip...");
   ledStripSetup(144);
+  Serial.println("LED strip initialized");
 }
 
 void loop() {
   // Feed the watchdog timer - critical for ESP8266 stability
   yield();
   
+  // Handle HTTP requests
   httpServer.handleClient();
   yield();
-
-  // Ensure AP is always enabled (unless explicitly disabled via API)
-  // This prevents AP from disappearing due to mode changes or errors
-  static unsigned long lastApCheck = 0;
-  static String cachedApSsid = "";
-  if (cachedApSsid.length() == 0) {
-    cachedApSsid = makeApSsid();  // Cache SSID to avoid calling in loop
-  }
-  
-  if (millis() - lastApCheck > 5000) { // Check every 5 seconds
-    lastApCheck = millis();
-    bool apEnabled = WiFi.getMode() & WIFI_AP;
-    IPAddress apIp = WiFi.softAPIP();
-    
-    if (!apEnabled || apIp.toString() == "0.0.0.0") {
-      Serial.println("AP was disabled or lost IP, re-enabling...");
-      WiFi.mode(WIFI_AP);
-      WiFi.softAPConfig(IPAddress(192,168,4,1), IPAddress(192,168,4,1), IPAddress(255,255,255,0));
-      WiFi.softAP(cachedApSsid.c_str(), "dungeon123");
-      delay(200);
-      yield();
-      Serial.print("AP re-enabled, IP: "); Serial.println(WiFi.softAPIP());
-    }
-  }
 
   // Run LED strip effect only when enabled
   if (stripEnabled) {
@@ -442,20 +476,8 @@ void loop() {
     yield();  // Feed watchdog after LED operations
   }
 
-  if (!blinkEnabled) {
-    delay(10);  // Small delay to prevent tight loop
-    return;
-  }
-
-  const unsigned long now = millis();
-  if (now - lastToggleMs >= blinkIntervalMs) {
-    lastToggleMs = now;
-    ledOn = !ledOn;
-    // Active-low LED on ESP8266
-    digitalWrite(LED_BUILTIN, ledOn ? LOW : HIGH);
-  }
-  
-  delay(1);  // Small delay to prevent tight loop and feed watchdog
+  // Small delay to prevent tight loop and feed watchdog
+  delay(10);
 }
 
 

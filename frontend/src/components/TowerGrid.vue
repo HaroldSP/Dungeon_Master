@@ -490,6 +490,14 @@
             <div class="d-flex flex-wrap gap-2 mb-2">
               <v-btn
                 size="small"
+                color="warning"
+                variant="tonal"
+                @click="forceNodeAp(currentEditTower)"
+              >
+                Force AP Mode
+              </v-btn>
+              <v-btn
+                size="small"
                 color="primary"
                 variant="tonal"
                 @click="provisionNodeForEdit(currentEditTower)"
@@ -987,11 +995,50 @@
   }
 
   async function callNode(tower, path) {
-    if (!tower?.nodemcuApiBase) return;
+    if (!tower?.nodemcuApiBase) {
+      console.warn(
+        '[TowerGrid] callNode: no nodemcuApiBase for tower',
+        tower?.id
+      );
+      return;
+    }
     try {
-      await fetch(`${tower.nodemcuApiBase}${path}`, { cache: 'no-store' });
+      // Ensure absolute URL (add http:// if missing)
+      let baseUrl = tower.nodemcuApiBase.trim();
+      if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+        baseUrl = `http://${baseUrl}`;
+      }
+      // Remove trailing slashes
+      baseUrl = baseUrl.replace(/\/+$/, '');
+      // Ensure path starts with /
+      const cleanPath = path.startsWith('/') ? path : `/${path}`;
+      const fullUrl = `${baseUrl}${cleanPath}`;
+      console.log('[TowerGrid] Calling NodeMCU:', fullUrl);
+      const response = await fetch(fullUrl, {
+        cache: 'no-store',
+        method: 'GET',
+        mode: 'cors',
+      });
+      console.log(
+        '[TowerGrid] NodeMCU response:',
+        response.status,
+        response.statusText
+      );
+      if (!response.ok) {
+        const text = await response.text();
+        console.warn('[TowerGrid] NodeMCU error response:', text);
+      } else {
+        const text = await response.text();
+        console.log('[TowerGrid] NodeMCU success:', text);
+      }
     } catch (e) {
-      console.error('node call error', e);
+      console.error('[TowerGrid] NodeMCU call error:', e);
+      console.error('[TowerGrid] Error details:', {
+        towerId: tower?.id,
+        nodemcuApiBase: tower?.nodemcuApiBase,
+        path,
+        error: e.message,
+      });
     }
   }
 
@@ -1024,6 +1071,42 @@
       });
     } catch (e) {
       console.error('whoami node error', e);
+    }
+  }
+
+  async function forceNodeAp(tower) {
+    editNodeStatusText.value = '';
+    // Use current NodeMCU API (could be STA IP or AP IP)
+    const currentUrl = (
+      tower?.nodemcuApiBase ||
+      editForm.value.nodemcuApiBase ||
+      'http://192.168.4.1'
+    )
+      .trim()
+      .replace(/\/+$/, '');
+    if (!currentUrl) {
+      editNodeStatusText.value = 'Enter NodeMCU API or use AP IP (192.168.4.1)';
+      return;
+    }
+    // Ensure absolute URL
+    let baseUrl = currentUrl;
+    if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+      baseUrl = `http://${baseUrl}`;
+    }
+    try {
+      const url = `${baseUrl}/force-ap`;
+      const res = await fetch(url, { cache: 'no-store' });
+      const text = await res.text();
+      const data = JSON.parse(text);
+      editNodeStatusText.value = `AP mode forced → SSID: ${data.ssid}, IP: ${data.ip}. Connect to AP and provision.`;
+      console.log('[TowerGrid] Force AP mode:', data);
+      // Update the NodeMCU API to AP IP for future provisioning
+      if (data.ip) {
+        editForm.value.nodemcuApiBase = `http://${data.ip}`;
+      }
+    } catch (e) {
+      editNodeStatusText.value = `Force AP error: ${e}`;
+      console.error('[TowerGrid] force AP error:', e);
     }
   }
 
