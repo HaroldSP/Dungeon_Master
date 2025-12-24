@@ -569,12 +569,11 @@
 
   async function provisionNode() {
     nodeProvisionResult.value = '';
-    const base = (nodemcuApiBase.value || defaultNodeApi)
-      .trim()
-      .replace(/\/+$/, '');
-    if (!base) {
+    // Use AP URL for provisioning (NodeMCU is in AP mode before connecting to Wi-Fi)
+    const apUrl = nodemcuApUrl.value.trim().replace(/\/+$/, '');
+    if (!apUrl) {
       nodeProvisionResult.value =
-        'Enter NodeMCU API, e.g., http://192.168.110.54';
+        'Enter NodeMCU AP URL for provisioning, e.g., http://192.168.4.1';
       return;
     }
     if (!nodemcuProvisionSsid.value) {
@@ -582,7 +581,7 @@
       return;
     }
     try {
-      const url = `${base}/provision?ssid=${encodeURIComponent(
+      const url = `${apUrl}/provision?ssid=${encodeURIComponent(
         nodemcuProvisionSsid.value
       )}&pass=${encodeURIComponent(nodemcuProvisionPass.value)}`;
       const res = await fetch(url, { cache: 'no-store' });

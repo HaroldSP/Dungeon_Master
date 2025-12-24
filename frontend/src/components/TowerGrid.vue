@@ -447,7 +447,7 @@
             <div class="text-subtitle-1 mb-2">Step 3: NodeMCU</div>
             <v-text-field
               v-model="editForm.nodemcuApiBase"
-              label="NodeMCU API"
+              label="NodeMCU API (home/work IP)"
               variant="outlined"
               density="comfortable"
               class="mb-2"
@@ -459,6 +459,15 @@
             <p class="text-body-2 mb-2">
               Connect NodeMCU to your home Wi‑Fi (only needed once per device).
             </p>
+            <v-text-field
+              v-model="editNodeApUrl"
+              label="NodeMCU AP URL (for provisioning)"
+              variant="outlined"
+              density="comfortable"
+              class="mb-2"
+              placeholder="http://192.168.4.1"
+              persistent-placeholder
+            />
             <v-text-field
               v-model="editNodeSsid"
               label="Home Wi‑Fi SSID"
@@ -673,6 +682,7 @@
   });
   const editNodeSsid = ref('');
   const editNodePass = ref('');
+  const editNodeApUrl = ref('http://192.168.4.1');
   const editNodeStatusText = ref('');
   const pyDefault =
     import.meta.env.VITE_PY_SERVER_URL || 'http://localhost:8003/detect';
@@ -1045,12 +1055,11 @@
 
   async function provisionNodeForEdit(tower) {
     editNodeStatusText.value = '';
-    const base = (tower?.nodemcuApiBase || editForm.value.nodemcuApiBase || '')
-      .trim()
-      .replace(/\/+$/, '');
-    if (!base) {
+    // Use AP URL for provisioning (NodeMCU is in AP mode before connecting to Wi-Fi)
+    const apUrl = editNodeApUrl.value.trim().replace(/\/+$/, '');
+    if (!apUrl) {
       editNodeStatusText.value =
-        'Enter NodeMCU API for this tower, e.g. http://192.168.110.54';
+        'Enter NodeMCU AP URL for provisioning, e.g. http://192.168.4.1';
       return;
     }
     if (!editNodeSsid.value) {
@@ -1058,14 +1067,14 @@
       return;
     }
     try {
-      const url = `${base}/provision?ssid=${encodeURIComponent(
+      const url = `${apUrl}/provision?ssid=${encodeURIComponent(
         editNodeSsid.value
       )}&pass=${encodeURIComponent(editNodePass.value || '')}`;
       const res = await fetch(url, { cache: 'no-store' });
       const text = await res.text();
       editNodeStatusText.value = `Node provision → ${res.status}: ${text}`;
       console.log('[TowerGrid] Node provision', {
-        base,
+        apUrl,
         status: res.status,
         text,
       });
